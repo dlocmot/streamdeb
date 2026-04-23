@@ -1,0 +1,17 @@
+# Elgato Stream Deck udev rules
+# Grants access to the Stream Deck USB device for users in the 'plugdev' group.
+# Install: sudo cp 50-streamdeck.rules /etc/udev/rules.d/
+#          sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# Stream Deck Original
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0060", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+# Stream Deck Mini
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0063", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+# Stream Deck XL
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="006c", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+# Stream Deck MK.2
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0080", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+# Stream Deck Pedal
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0086", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+# Stream Deck Plus
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0084", TAG+="uaccess", GROUP="plugdev", MODE="0660"
