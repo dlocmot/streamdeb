@@ -1,0 +1,17 @@
+[Unit]
+Description=Stream Deck — kiosko AWAhorro (modo perfil en dinamo)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jfqp/Documents/GitHub/streamdeb
+ExecStart=/home/jfqp/Documents/GitHub/streamdeb/.venv/bin/python /home/jfqp/Documents/GitHub/streamdeb/awa_kiosk.py
+Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+Environment=STREAMDEB_API_HOST=http://192.168.18.10
+Environment=STREAMDEB_API_USER=Dinamo
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

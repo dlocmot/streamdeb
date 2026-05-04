@@ -1,8 +1,10 @@
 # Elgato Stream Deck udev rules
-# Grants access to the Stream Deck USB device for users in the 'plugdev' group.
+# Grants access to USB and hidraw interfaces for users in the 'plugdev' group.
 # Install: sudo cp 50-streamdeck.rules /etc/udev/rules.d/
 #          sudo udevadm control --reload-rules && sudo udevadm trigger
+# Then reconnect the Stream Deck (or reboot).
 
+# --- USB subsystem (device enumeration) ---
 # Stream Deck Original
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0060", TAG+="uaccess", GROUP="plugdev", MODE="0660"
 # Stream Deck Mini
@@ -15,3 +17,6 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0080", TAG+="uacce
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0086", TAG+="uaccess", GROUP="plugdev", MODE="0660"
 # Stream Deck Plus
 SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="0084", TAG+="uaccess", GROUP="plugdev", MODE="0660"
+
+# --- hidraw subsystem (required by the Python library) ---
+KERNEL=="hidraw*", ATTRS{idVendor}=="0fd9", TAG+="uaccess", GROUP="plugdev", MODE="0660"

@@ -1,0 +1,25 @@
+[Unit]
+Description=Stream Deck XL — kiosko AWAhorro (página única)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=streamdeb
+Group=streamdeb
+SupplementaryGroups=plugdev
+WorkingDirectory=/opt/streamdeb
+ExecStart=/opt/streamdeb/.venv/bin/python /opt/streamdeb/awa_kiosk.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Configuración del kiosko (ajusta según tu red)
+Environment="STREAMDEB_API_HOST=http://192.168.18.10"
+Environment="STREAMDEB_API_USER=Kiosko"
+Environment="STREAMDEB_BRILLO=75"
+Environment="STREAMDEB_DIM=1800"
+
+[Install]
+WantedBy=multi-user.target
