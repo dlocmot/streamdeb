@@ -11,17 +11,18 @@ import socket
 import urllib.request
 from collections import deque
 from urllib.parse import urlparse
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from StreamDeck.DeviceManager import DeviceManager
 from StreamDeck.ImageHelpers import PILHelper
 
 try:
-    from pynput.keyboard import Controller
+    from pynput.keyboard import Controller, Key
     keyboard = Controller()
     KB_DISPONIBLE = True
 except Exception as e:
     print(f"[WARN] pynput no disponible: {e}")
     KB_DISPONIBLE = False
+    Key = None
 
 # --- CONFIGURACIÓN ---
 FONT_PATH    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -62,6 +63,8 @@ forzar_redraw = False
 brillo_actual    = 75
 tiempo_fallback  = 300    # s sin interacción en otra pág. → vuelve a SIS
 tiempo_dim       = 1800   # s sin interacción → atenúa el deck
+perfil_visual    = 1      # 1 = con marcos · 2 = sin marco externo
+PERFILES_TOTAL   = 2
 
 
 # --- Helpers ---
@@ -112,6 +115,183 @@ APPS_PAGINA = {
 }
 
 
+# --- Página WEB (5) — accesos rápidos a URLs ---
+# Agrupado por tipo de contenido (un color por grupo).
+# Mail/Msg #ea4335 · AI #ab47bc · Dev #cccccc · Video #ff6f00 ·
+# 3D #00bcd4 · Net #66bb6a · News #ffc107 · Empresa #26c6da
+# tecla: (label, sub, url, color)
+WEB_PAGINA = {
+    # Fila 1: Mail/Msg · AI · Dev · Video
+    8:  ("Gmail",    "google",     "https://mail.google.com",                     "#ea4335"),
+    9:  ("Proton",   "mail",       "https://mail.proton.me",                      "#ea4335"),
+    10: ("WhatsApp", "web",        "https://web.whatsapp.com",                    "#ea4335"),
+    11: ("Claude",   "ai",         "https://claude.ai",                           "#ab47bc"),
+    12: ("Gemini",   "google",     "https://gemini.google.com",                   "#ab47bc"),
+    13: ("GitHub",   "code",       "https://github.com",                          "#cccccc"),
+    14: ("YouTube",  "video",      "https://youtube.com",                         "#ff6f00"),
+    # Fila 2: 3D · Net
+    16: ("Tinker",   "cad",        "https://tinkercad.com",                       "#00bcd4"),
+    17: ("Thingi",   "verse",      "https://thingiverse.com",                     "#00bcd4"),
+    18: ("MyIP",     "publico",    "https://whatismyipaddress.com",               "#66bb6a"),
+    19: ("Cloudfl.", "dash",       "https://dash.cloudflare.com",                 "#66bb6a"),
+    20: ("AWA",      "admin",      "http://192.168.18.10/admin",                  "#66bb6a"),
+    # Fila 3: News + Empresa
+    24: ("Repúb.",   "lica",       "https://larepublica.pe",                      "#ffc107"),
+    25: ("El Com.",  "ercio",      "https://elcomercio.pe",                       "#ffc107"),
+    26: ("Gestión",  "diario",     "https://gestion.pe",                          "#ffc107"),
+    27: ("Agentica", "Holotech",   "https://agentica.holotech.pe/HOL/inbox/all",  "#26c6da"),
+    28: ("Growatt",  "server",     "https://server.growatt.com/login?lang=en",    "#26c6da"),
+}
+
+# Overrides de icono. Si el valor empieza con http(s) se descarga; si es ruta
+# absoluta se usa directamente (para sites locales o iconos de sistema).
+WEB_ICON_OVERRIDE = {
+    "https://github.com":              "https://github.githubassets.com/favicons/favicon-dark.png",
+    "https://claude.ai":               "https://api.iconify.design/simple-icons:claude.svg?color=%23d97757",
+    "http://192.168.18.10/admin":      "/usr/share/icons/mate/48x48/categories/preferences-system-network.png",
+}
+
+
+# --- Página KEYS (6) — atajos de teclado ---
+# tecla: (label, combo_str, [pynput keys])
+def _kp(*keys):
+    return list(keys)
+
+KEYS_PAGINA = {
+    # tecla: (label, combo, factory_keys, icono_sistema)
+    8:  ("Captura", "Print",         lambda: _kp(Key.print_screen),               "applets-screenshooter"),
+    9:  ("CapSel",  "Shift+Print",   lambda: _kp(Key.shift, Key.print_screen),    "applets-screenshooter"),
+    10: ("Bloqueo", "Super+L",       lambda: _kp(Key.cmd, 'l'),                   "system-lock-screen"),
+    11: ("AltTab",  "Alt+Tab",       lambda: _kp(Key.alt, Key.tab),               "view-restore"),
+    12: ("Cerrar",  "Alt+F4",        lambda: _kp(Key.alt, Key.f4),                "window-close"),
+    13: ("Escrit",  "Super+D",       lambda: _kp(Key.cmd, 'd'),                   "user-desktop"),
+    16: ("CopiaT",  "Ctrl+Shift+C",  lambda: _kp(Key.ctrl, Key.shift, 'c'),       "edit-copy"),
+    17: ("PegaT",   "Ctrl+Shift+V",  lambda: _kp(Key.ctrl, Key.shift, 'v'),       "edit-paste"),
+    18: ("Root",    "PWD",           lambda: ROOT_TEXT,                           "dialog-password"),
+}
+
+
+_FAVICON_CACHE_DIR = os.path.expanduser("~/.cache/streamdeb/favicons")
+_ICONIFY_CACHE_DIR = os.path.expanduser("~/.cache/streamdeb/iconify")
+_favicon_paths = {}
+_iconify_paths = {}
+
+def _iconify_png(name, color_hex, size=256):
+    """Descarga un icono de iconify (set:icon) y lo cachea como PNG.
+    `color_hex` puede ser None para iconos multicolor (fluent-color, etc.)."""
+    key = (name, color_hex, size)
+    if key in _iconify_paths:
+        return _iconify_paths[key]
+    os.makedirs(_ICONIFY_CACHE_DIR, exist_ok=True)
+    safe = name.replace(":", "_").replace("/", "_")
+    color_tag = color_hex if color_hex else "raw"
+    path = os.path.join(_ICONIFY_CACHE_DIR, f"{safe}_{color_tag}_{size}.png")
+    if not os.path.exists(path) or os.path.getsize(path) < 100:
+        if color_hex:
+            url = f"https://api.iconify.design/{name}.svg?color=%23{color_hex}"
+        else:
+            url = f"https://api.iconify.design/{name}.svg"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                svg = r.read()
+            import cairosvg
+            data = cairosvg.svg2png(bytestring=svg, output_width=size, output_height=size)
+            with open(path, "wb") as f:
+                f.write(data)
+            print(f"[ICONIFY] {name} ({color_hex}) -> {len(data)}B", flush=True)
+        except Exception as e:
+            print(f"[WARN] iconify {name}: {e}", flush=True)
+            _iconify_paths[key] = None
+            return None
+    _iconify_paths[key] = path
+    return path
+
+def _favicon_path(url):
+    """Devuelve la ruta a un PNG con el favicon del dominio, descargándolo
+    desde el servicio s2 de Google si hace falta. Cachea en disco y memoria."""
+    if url in _favicon_paths:
+        return _favicon_paths[url]
+    try:
+        host = urlparse(url).hostname or url
+    except Exception:
+        host = url
+    os.makedirs(_FAVICON_CACHE_DIR, exist_ok=True)
+    path = os.path.join(_FAVICON_CACHE_DIR, f"{host}.png")
+    # Override que apunta a un archivo local: úsalo directo, sin descargar.
+    if url in WEB_ICON_OVERRIDE and not WEB_ICON_OVERRIDE[url].startswith("http"):
+        local = WEB_ICON_OVERRIDE[url]
+        if os.path.exists(local):
+            _favicon_paths[url] = local
+            return local
+    if not os.path.exists(path) or os.path.getsize(path) < 100:
+        sources = []
+        if url in WEB_ICON_OVERRIDE and WEB_ICON_OVERRIDE[url].startswith("http"):
+            sources.append(WEB_ICON_OVERRIDE[url])
+        sources += [
+            f"https://www.google.com/s2/favicons?domain={host}&sz=128",
+            f"https://icons.duckduckgo.com/ip3/{host}.ico",
+            f"https://{host}/favicon.ico",
+        ]
+        data = None
+        for src in sources:
+            try:
+                req = urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=4) as r:
+                    data = r.read()
+                if len(data) >= 100:
+                    # Si nos devolvieron SVG, renderizar a PNG con cairosvg.
+                    head = data[:200].lstrip()
+                    if head.startswith(b"<?xml") or head.startswith(b"<svg"):
+                        try:
+                            import cairosvg
+                            data = cairosvg.svg2png(bytestring=data,
+                                                    output_width=256, output_height=256)
+                        except Exception as e:
+                            print(f"[WARN] svg2png {host}: {e}", flush=True)
+                            data = None
+                            continue
+                    print(f"[FAVICON] {host} -> {len(data)}B ({src.split('/')[2]})", flush=True)
+                    break
+                data = None
+            except Exception as e:
+                print(f"[WARN] favicon {host} via {src.split('/')[2]}: {e}", flush=True)
+        if not data:
+            _favicon_paths[url] = None
+            return None
+        with open(path, "wb") as f:
+            f.write(data)
+    _favicon_paths[url] = path
+    return path
+
+def _enviar_combo(keys):
+    if not KB_DISPONIBLE:
+        print("[WARN] pynput no disponible, no se envía combo", flush=True)
+        return
+    pressed = []
+    try:
+        for k in keys:
+            keyboard.press(k); pressed.append(k)
+            time.sleep(0.02)
+        time.sleep(0.05)
+    finally:
+        for k in reversed(pressed):
+            try: keyboard.release(k)
+            except Exception: pass
+
+def _tipear_url(url):
+    """Abre una pestaña nueva (Ctrl+T), tipea la URL y pulsa Enter.
+    El navegador debe estar enfocado al pulsar el botón."""
+    if not KB_DISPONIBLE:
+        print("[WARN] pynput no disponible, no se tipea URL", flush=True)
+        return
+    _enviar_combo([Key.ctrl, 't'])
+    time.sleep(0.35)
+    keyboard.type(url)
+    time.sleep(0.05)
+    keyboard.press(Key.enter); keyboard.release(Key.enter)
+
+
 # --- Carga y resolución de iconos ---
 
 import glob as _glob
@@ -121,8 +301,10 @@ _ICONO_BASES = (
     os.path.expanduser("~/.local/share/icons/hicolor"),
     "/usr/share/icons/hicolor",
     "/usr/share/icons/gnome",
+    "/usr/share/icons/mate",
 )
 _ICONO_TAMS = ("512x512", "256x256", "128x128", "96x96", "64x64", "48x48")
+_ICONO_SUBDIRS = ("apps", "actions", "categories", "places", "status", "devices")
 _icono_cache = {}
 
 def _buscar_icono(nombre):
@@ -132,9 +314,10 @@ def _buscar_icono(nombre):
         return nombre if os.path.exists(nombre) else None
     for base in _ICONO_BASES:
         for size in _ICONO_TAMS:
-            p = f"{base}/{size}/apps/{nombre}.png"
-            if os.path.exists(p):
-                return p
+            for sub in _ICONO_SUBDIRS:
+                p = f"{base}/{size}/{sub}/{nombre}.png"
+                if os.path.exists(p):
+                    return p
     for ext in ("png", "xpm"):
         p = f"/usr/share/pixmaps/{nombre}.{ext}"
         if os.path.exists(p):
@@ -245,6 +428,81 @@ def api_post_comando(payload):
 
 # --- Dibujo ---
 
+def _con_marco():
+    """¿Se dibuja el marco externo del botón? Depende del perfil visual activo."""
+    return perfil_visual == 1
+
+def _nuevo_lienzo(tamaño):
+    """Lienzo RGBA totalmente transparente. El fondo (negro o wallpaper)
+    se compone en _finalizar()."""
+    return Image.new("RGBA", tamaño, (0, 0, 0, 0))
+
+# --- Wallpaper (toggle ON/OFF, hardcoded URL) ---
+WALLPAPER_URL  = "https://external-content.duckduckgo.com/iu/?u=http%3A%2F%2Fhdqwalls.com%2Fwallpapers%2F4k-galaxy-space-i9.jpg&f=1&nofb=1&ipt=a34e3f52a05088bb055f2d3454bbf78e0d3d0e6eb504c5fc2881705a4e07e5ce"
+WALLPAPER_PATH = os.path.expanduser("~/.cache/streamdeb/wallpaper.jpg")
+DECK_COLS, DECK_ROWS = 8, 4
+WALLPAPER_BRILLO = 0.5      # 1.0 = original · 0.5 = 50%
+wallpaper_on    = False
+_wallpaper_full = None     # PIL RGB redimensionado a (cols*W, rows*H)
+_wallpaper_size = None     # (W, H) por tile cacheado
+
+def _wallpaper_descargar():
+    if os.path.exists(WALLPAPER_PATH) and os.path.getsize(WALLPAPER_PATH) > 1000:
+        return True
+    try:
+        os.makedirs(os.path.dirname(WALLPAPER_PATH), exist_ok=True)
+        req = urllib.request.Request(WALLPAPER_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = r.read()
+        with open(WALLPAPER_PATH, "wb") as f:
+            f.write(data)
+        return True
+    except Exception as e:
+        print(f"[WALLPAPER] error descarga: {e}", flush=True)
+        return False
+
+def _wallpaper_cargar(tamaño):
+    """Asegura que _wallpaper_full está listo y dimensionado a (cols*W, rows*H)."""
+    global _wallpaper_full, _wallpaper_size
+    if _wallpaper_full is not None and _wallpaper_size == tamaño:
+        return _wallpaper_full
+    if not _wallpaper_descargar():
+        return None
+    try:
+        img = Image.open(WALLPAPER_PATH).convert("RGB")
+        total = (DECK_COLS * tamaño[0], DECK_ROWS * tamaño[1])
+        img = img.resize(total, Image.LANCZOS)
+        if WALLPAPER_BRILLO != 1.0:
+            img = ImageEnhance.Brightness(img).enhance(WALLPAPER_BRILLO)
+        _wallpaper_full = img
+        _wallpaper_size = tamaño
+        return _wallpaper_full
+    except Exception as e:
+        print(f"[WALLPAPER] error cargando: {e}", flush=True)
+        return None
+
+def _wallpaper_tile(tamaño, tecla):
+    full = _wallpaper_cargar(tamaño)
+    if full is None or tecla is None:
+        return None
+    row, col = tecla // DECK_COLS, tecla % DECK_COLS
+    box = (col * tamaño[0], row * tamaño[1],
+           (col + 1) * tamaño[0], (row + 1) * tamaño[1])
+    return full.crop(box).copy()
+
+def _finalizar(deck, tamaño, imagen_rgba, tecla):
+    """Compone PIL RGBA sobre el tile de wallpaper (si está ON) o negro,
+    y devuelve los bytes nativos. Si imagen_rgba es None, devuelve solo
+    el fondo (tile o negro) — útil para teclas vacías."""
+    if wallpaper_on:
+        tile = _wallpaper_tile(tamaño, tecla)
+        fondo = tile if tile is not None else Image.new("RGB", tamaño, "black")
+    else:
+        fondo = Image.new("RGB", tamaño, "black")
+    if imagen_rgba is not None:
+        fondo.paste(imagen_rgba, (0, 0), imagen_rgba)
+    return PILHelper.to_native_format(deck, fondo)
+
 def obtener_color_rango(valor):
     if valor < 30: return "#33ff33"
     elif valor <= 80: return "#ffaa00"
@@ -252,10 +510,11 @@ def obtener_color_rango(valor):
 
 def dibujar_panel_metrica(deck, tamaño, titulo, valor, color, pct=None, valor_color=None, sub=None):
     """Estilo unificado SIS: marco redondeado + título separado + valor + barra inferior."""
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
-    dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
     f_tit = ImageFont.truetype(FONT_PATH, 13)
     dibujo.text((tamaño[0]//2, 15), titulo, font=f_tit, fill=color, anchor="mm")
     dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
@@ -289,7 +548,7 @@ def dibujar_panel_metrica(deck, tamaño, titulo, valor, color, pct=None, valor_c
         dibujo.rectangle((x, y, x + ancho, y + alto), outline="#333333", fill="#111111")
         if p > 0:
             dibujo.rectangle((x, y, x + int(ancho * (p/100)), y + alto), fill=color)
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def _ip_2_lineas(ip):
     partes = ip.split('.')
@@ -332,7 +591,7 @@ def _ping_pct_relativo(clave, ms):
     return pct, color
 
 def dibujar_boton_fijo(deck, tamaño, texto, color, relleno=False):
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     f_btn = ImageFont.truetype(FONT_PATH, 18)
     rect  = (5, 5, tamaño[0]-6, tamaño[1]-6)
@@ -340,9 +599,10 @@ def dibujar_boton_fijo(deck, tamaño, texto, color, relleno=False):
         dibujo.rounded_rectangle(rect, radius=12, fill=color)
         dibujo.text((tamaño[0]//2, tamaño[1]//2), texto, font=f_btn, fill="black", anchor="mm")
     else:
-        dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
         dibujo.text((tamaño[0]//2, tamaño[1]//2), texto, font=f_btn, fill="white", anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def _fit_font(dibujo, txt, max_width, max_size, min_size=10):
     for size in range(max_size, min_size - 1, -1):
@@ -352,23 +612,25 @@ def _fit_font(dibujo, txt, max_width, max_size, min_size=10):
     return ImageFont.truetype(FONT_PATH, min_size)
 
 def dibujar_panel_info(deck, tamaño, titulo, valor, frame_color, valor_color="#ffffff"):
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
-    dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
     f_tit = ImageFont.truetype(FONT_PATH, 13)
     dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=frame_color, anchor="mm")
     dibujo.line((10, 28, tamaño[0]-11, 28), fill=frame_color, width=1)
     txt = str(valor)
     f_val = _fit_font(dibujo, txt, tamaño[0]-16, 22, 11)
     dibujo.text((tamaño[0]//2, 60), txt, font=f_val, fill=valor_color, anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def dibujar_panel_2lineas(deck, tamaño, titulo, valor, frame_color, valor_color="#ffffff"):
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
-    dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
     f_tit = ImageFont.truetype(FONT_PATH, 13)
     dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=frame_color, anchor="mm")
     dibujo.line((10, 28, tamaño[0]-11, 28), fill=frame_color, width=1)
@@ -383,39 +645,43 @@ def dibujar_panel_2lineas(deck, tamaño, titulo, valor, frame_color, valor_color
     f2 = _fit_font(dibujo, l2, max_w, 18, 10)
     dibujo.text((tamaño[0]//2, 50), l1, font=f1, fill=valor_color, anchor="mm")
     dibujo.text((tamaño[0]//2, 73), l2, font=f2, fill=valor_color, anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def dibujar_estado_pro(deck, tamaño, online, abierta):
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
     f_tit = ImageFont.truetype(FONT_PATH, 13)
     if not online:
         color, texto = "#666666", "OFFLINE"
-        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
     elif abierta:
         color, texto = "white", "ABIERTA"
         dibujo.rounded_rectangle(rect, radius=10, fill="#22aa33")
     else:
         color, texto = "#ff3333", "CERRADA"
-        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=3)
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=10, outline=color, width=3)
     dibujo.text((tamaño[0]//2, 16), "Estado", font=f_tit, fill=color, anchor="mm")
     dibujo.line((10, 28, tamaño[0]-11, 28), fill=color, width=1)
     f_val = _fit_font(dibujo, texto, tamaño[0]-18, 20, 12)
     dibujo.text((tamaño[0]//2, 60), texto, font=f_val, fill=color, anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
     """Acción con marco redondeado. drain en [0,1]: 0=lleno (recién pulsado),
     1=vaciado completo. None = estado inactivo (fondo oscuro)."""
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
 
     if peligro:
         dibujo.rounded_rectangle(rect, radius=10, fill=color)
     elif drain is None:
-        dibujo.rounded_rectangle(rect, radius=10, fill="#001a26", outline=color, width=2)
+        dibujo.rounded_rectangle(rect, radius=10, fill="#001a26")
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
     else:
         d = max(0.0, min(1.0, drain))
         # Base oscura
@@ -423,7 +689,7 @@ def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
         if d < 1.0:
             # Capa de agua (rect redondeado lleno) + máscara que recorta
             # solo la franja inferior — efecto "el agua baja al vaciarse".
-            water = Image.new("RGB", tamaño, "black")
+            water = Image.new("RGBA", tamaño, (0, 0, 0, 0))
             wd = ImageDraw.Draw(water)
             wd.rounded_rectangle(rect, radius=10, fill=color)
             mask = Image.new("L", tamaño, 0)
@@ -432,7 +698,8 @@ def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
             md.rectangle((0, water_top, tamaño[0], tamaño[1]), fill=255)
             imagen = Image.composite(water, imagen, mask)
             dibujo = ImageDraw.Draw(imagen)
-        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
 
     max_w = tamaño[0] - 16
     if " " in texto:
@@ -444,11 +711,11 @@ def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
     else:
         f = _fit_font(dibujo, texto, max_w, 24, 12)
         dibujo.text((tamaño[0]//2, tamaño[1]//2), texto, font=f, fill="white", anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None, color="#33ccff", activo=False):
     """Botón de navegación con título y hasta 2 sublíneas opcionales."""
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (5, 5, tamaño[0]-6, tamaño[1]-6)
     if activo:
@@ -456,7 +723,8 @@ def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None, color="#33ccf
         title_color = "black"
         sub_color   = "black"
     else:
-        dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
         title_color = "white"
         sub_color   = color
     max_w = tamaño[0] - 18
@@ -479,10 +747,12 @@ def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None, color="#33ccf
     else:
         f_tit = ImageFont.truetype(FONT_PATH, 18)
         dibujo.text((tamaño[0]//2, tamaño[1]//2), titulo, font=f_tit, fill=title_color, anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 _gear_cache = {}
 _app_cache = {}
+_web_cache = {}
+_keys_cache = {}
 GEAR_ICON_PATHS = (
     "/usr/share/icons/gnome/256x256/categories/preferences-system.png",
     "/usr/share/icons/mate/256x256/categories/preferences-system.png",
@@ -491,21 +761,30 @@ GEAR_ICON_PATHS = (
 APP_NAV_ICON_PATHS = (
     "/usr/share/icons/gnome/256x256/places/start-here.png",
 )
+WEB_NAV_ICON_PATHS = (
+    "/usr/share/icons/gnome/256x256/apps/web-browser.png",
+    "/usr/share/icons/gnome/256x256/categories/applications-internet.png",
+)
+KEYS_NAV_ICON_PATHS = (
+    "/usr/share/icons/gnome/256x256/apps/preferences-desktop-keyboard-shortcuts.png",
+    "/usr/share/icons/gnome/256x256/apps/preferences-desktop-keyboard.png",
+)
 
 def _dibujar_btn_icono_nav(deck, tamaño, paths, color, titulo, activo, cache):
     """Botón de navegación con header (título + separador) e icono colorido en la
     zona inferior, mismo estilo que el resto de nav. Cache por (tamaño, activo, titulo)."""
-    cache_key = (tamaño, activo, titulo)
+    cache_key = (tamaño, activo, titulo, perfil_visual)
     if cache_key in cache:
         return cache[cache_key]
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (5, 5, tamaño[0]-6, tamaño[1]-6)
     if activo:
         dibujo.rounded_rectangle(rect, radius=12, fill=color)
         title_color, sep_color = "black", "black"
     else:
-        dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
+        if _con_marco():
+            dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
         title_color, sep_color = "white", color
     f_tit = ImageFont.truetype(FONT_PATH, 13)
     dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=title_color, anchor="mm")
@@ -522,22 +801,23 @@ def _dibujar_btn_icono_nav(deck, tamaño, paths, color, titulo, activo, cache):
             except Exception as e:
                 print(f"[ERR ICON NAV] {path}: {e}", flush=True)
     if icono is not None:
-        lado = min(tamaño[0] - 18, zone_h - 2)
+        lado = int(min(tamaño[0] - 18, zone_h - 2) * 0.9)
         icono.thumbnail((lado, lado), Image.LANCZOS)
         ix = (tamaño[0] - icono.width) // 2
         iy = zone_top + (zone_h - icono.height) // 2
         imagen.paste(icono, (ix, iy), icono)
-    out = PILHelper.to_native_format(deck, imagen)
+    out = imagen
     cache[cache_key] = out
     return out
 
 def dibujar_lanzador(deck, tamaño, categoria, color, icono=None, fallback=None):
     """Lanzador de app: marco redondeado + título (categoría) + separador + icono
     centrado debajo. Si no hay icono disponible cae a texto fallback."""
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
-    dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
     f_tit = ImageFont.truetype(FONT_PATH, 13)
     dibujo.text((tamaño[0]//2, 15), categoria, font=f_tit, fill=color, anchor="mm")
     dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
@@ -555,7 +835,49 @@ def dibujar_lanzador(deck, tamaño, categoria, color, icono=None, fallback=None)
         f_val = _fit_font(dibujo, fallback, tamaño[0] - 16, 26, 12)
         cy = (zone_top + zone_bot) // 2
         dibujo.text((tamaño[0]//2, cy), fallback, font=f_val, fill="white", anchor="mm")
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
+
+def dibujar_lanzador_web(deck, tamaño, label, color, icon_path):
+    """Variante de dibujar_lanzador para favicons: escala el icono (incluso
+    hacia arriba) hasta llenar ~90% del área inferior."""
+    imagen = _nuevo_lienzo(tamaño)
+    dibujo = ImageDraw.Draw(imagen)
+    rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+    f_tit = ImageFont.truetype(FONT_PATH, 13)
+    dibujo.text((tamaño[0]//2, 15), label, font=f_tit, fill=color, anchor="mm")
+    dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
+
+    zone_top, zone_bot = 28, tamaño[1] - 6
+    zone_h = zone_bot - zone_top
+    target = int(min(tamaño[0] - 12, zone_h) * 0.9)
+
+    img_icono = None
+    if icon_path and os.path.exists(icon_path):
+        try:
+            img_icono = Image.open(icon_path).convert("RGBA")
+            w, h = img_icono.size
+            if w > 0 and h > 0:
+                scale = target / max(w, h)
+                img_icono = img_icono.resize(
+                    (max(1, int(w * scale)), max(1, int(h * scale))),
+                    Image.LANCZOS,
+                )
+        except Exception as e:
+            print(f"[ERR ICON WEB] {icon_path}: {e}", flush=True)
+            img_icono = None
+
+    if img_icono is not None:
+        ix = (tamaño[0] - img_icono.width) // 2
+        iy = zone_top + (zone_h - img_icono.height) // 2
+        imagen.paste(img_icono, (ix, iy), img_icono)
+    else:
+        f_val = _fit_font(dibujo, label, tamaño[0] - 16, 26, 12)
+        cy = (zone_top + zone_bot) // 2
+        dibujo.text((tamaño[0]//2, cy), label, font=f_val, fill="white", anchor="mm")
+    return imagen
+
 
 def dibujar_boton_gear(deck, tamaño, activo=False):
     return _dibujar_btn_icono_nav(deck, tamaño, GEAR_ICON_PATHS, "#aaaaaa", "CONF", activo, _gear_cache)
@@ -563,28 +885,36 @@ def dibujar_boton_gear(deck, tamaño, activo=False):
 def dibujar_boton_app_nav(deck, tamaño, activo=False):
     return _dibujar_btn_icono_nav(deck, tamaño, APP_NAV_ICON_PATHS, "#33ff66", "APP", activo, _app_cache)
 
+def dibujar_boton_web_nav(deck, tamaño, activo=False):
+    return _dibujar_btn_icono_nav(deck, tamaño, WEB_NAV_ICON_PATHS, "#33ff99", "WEB", activo, _web_cache)
+
+def dibujar_boton_keys_nav(deck, tamaño, activo=False):
+    return _dibujar_btn_icono_nav(deck, tamaño, KEYS_NAV_ICON_PATHS, "#ffcc33", "KEYS", activo, _keys_cache)
+
 def dibujar_boton_x(deck, tamaño):
     """Botón profesional con X roja, atenúa el brillo del deck a 0."""
-    imagen = Image.new("RGB", tamaño, "black")
+    imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
-    dibujo.rounded_rectangle(rect, radius=10, fill="#1a0000", outline="#cc0000", width=2)
+    dibujo.rounded_rectangle(rect, radius=10, fill="#1a0000")
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline="#cc0000", width=2)
     pad = 24
     x1, y1 = pad, pad
     x2, y2 = tamaño[0]-pad-1, tamaño[1]-pad-1
     dibujo.line((x1, y1, x2, y2), fill="#ff3333", width=5)
     dibujo.line((x1, y2, x2, y1), fill="#ff3333", width=5)
-    return PILHelper.to_native_format(deck, imagen)
+    return imagen
 
 def dibujar_negro(deck, tamaño):
-    return PILHelper.to_native_format(deck, Image.new("RGB", tamaño, "black"))
+    return None  # _finalizar(None, tecla) genera el tile (negro o wallpaper)
 
 
 # --- Callback ---
 
 def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
-    global tiempo_fallback, tiempo_dim
+    global tiempo_fallback, tiempo_dim, perfil_visual, wallpaper_on
 
     # Navegación entre páginas (siempre activa)
     if tecla == 0:
@@ -607,6 +937,16 @@ def _accion_boton(deck, tecla):
             pagina_actual = 4
             forzar_redraw = True
         return
+    if tecla == 5:
+        if pagina_actual != 6:
+            pagina_actual = 6
+            forzar_redraw = True
+        return
+    if tecla == 6:
+        if pagina_actual != 7:
+            pagina_actual = 7
+            forzar_redraw = True
+        return
     if tecla == 7:
         if pagina_actual != 5:
             pagina_actual = 5
@@ -614,8 +954,6 @@ def _accion_boton(deck, tecla):
         return
 
     if pagina_actual == 1:
-        if tecla == 14 and KB_DISPONIBLE:
-            keyboard.type(ROOT_TEXT)
         return
 
     if pagina_actual == 2:
@@ -640,6 +978,23 @@ def _accion_boton(deck, tecla):
     if pagina_actual == 4:
         if tecla in APPS_PAGINA:
             _lanzar(APPS_PAGINA[tecla][2])
+        return
+
+    if pagina_actual == 6:
+        if tecla in WEB_PAGINA:
+            url = WEB_PAGINA[tecla][2]
+            _tipear_url(url)
+        return
+
+    if pagina_actual == 7:
+        if tecla in KEYS_PAGINA:
+            entry = KEYS_PAGINA[tecla]
+            accion = entry[2]()
+            if isinstance(accion, str):
+                if KB_DISPONIBLE:
+                    keyboard.type(accion)
+            else:
+                _enviar_combo(accion)
         return
 
     if pagina_actual == 5:
@@ -674,11 +1029,43 @@ def _accion_boton(deck, tecla):
             tiempo_dim = max(TIEMPO_DIM_MIN, tiempo_dim - TIEMPO_PASO)
             print(f"[CONFIG] tiempo_dim={tiempo_dim}s", flush=True)
             forzar_redraw = True
-        # Perfil Kiosko (cambiar al servicio streamdeb-kiosk)
+        # Perfil visual (rota 1 → 2 → … → 1)
+        elif tecla == 11:
+            perfil_visual = (perfil_visual % PERFILES_TOTAL) + 1
+            _gear_cache.clear(); _app_cache.clear()
+            _web_cache.clear(); _keys_cache.clear()
+            print(f"[CONFIG] perfil_visual={perfil_visual}", flush=True)
+            forzar_redraw = True
+        # Wallpaper ON/OFF
+        elif tecla == 12:
+            wallpaper_on = not wallpaper_on
+            print(f"[CONFIG] wallpaper_on={wallpaper_on}", flush=True)
+            forzar_redraw = True
+        # Perfil Kiosko: pasa este deck (B) a AWA. Lanza awa_kiosk pineado
+        # al mismo serial como servicio transient, luego para streamdeb.
         elif tecla == 15:
-            print("[CONFIG] cambiando a perfil Kiosko", flush=True)
+            serial_b = DECK_SERIAL or ""
+            print(f"[CONFIG] deck {serial_b} → AWA kiosko", flush=True)
+            unit = f"streamdeb-kiosk-b-{int(time.time())}"
+            cmd_arranque = (
+                f"sleep 1.5 && "
+                f"STREAMDEB_DECK_SERIAL={serial_b} STREAMDEB_FORCE_DARK=1 "
+                f"/home/jfqp/Documents/GitHub/streamdeb/.venv/bin/python "
+                f"/home/jfqp/Documents/GitHub/streamdeb/awa_kiosk.py"
+            )
             subprocess.Popen(
-                ["/home/jfqp/Documents/GitHub/streamdeb/bin/switch-profile.sh", "kiosk"],
+                ["systemd-run", "--user", "--no-block",
+                 f"--unit={unit}",
+                 "--description=AWA kiosko en deck B",
+                 "--setenv=DISPLAY=:0",
+                 "--setenv=STREAMDEB_API_HOST=http://192.168.18.10",
+                 "--setenv=STREAMDEB_API_USER=Dinamo",
+                 "bash", "-lc", cmd_arranque],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            subprocess.Popen(
+                ["systemctl", "--user", "stop", "streamdeb.service"],
                 start_new_session=True,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
@@ -761,8 +1148,10 @@ def botones_navegacion(deck, tam):
     p3 = dibujar_boton_nav(deck, tam, "MEDIA", media_vol,
                            color="#cc66ff", activo=(pagina_actual == 3))
     p4 = dibujar_boton_app_nav(deck, tam, activo=(pagina_actual == 4))
+    p_web  = dibujar_boton_web_nav(deck, tam, activo=(pagina_actual == 6))
+    p_keys = dibujar_boton_keys_nav(deck, tam, activo=(pagina_actual == 7))
     gear = dibujar_boton_gear(deck, tam, activo=(pagina_actual == 5))
-    return p1, p2, p3, p4, gear
+    return {0: p1, 1: p2, 2: p3, 3: p4, 5: p_web, 6: p_keys, 7: gear}
 
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     global max_visto_down, max_visto_up
@@ -781,14 +1170,12 @@ def render_pagina_sistema(deck, tam, last_net, cur_net):
     max_visto_up   = max(max_visto_up,   up_kbps)
     f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
 
-    p1, p2, p3, p4, gear = botones_navegacion(deck, tam)
+    nav = botones_navegacion(deck, tam)
     imgs = {
-        # Fila 0: navegación (+ gear y X en última columna)
-        0: p1, 1: p2, 2: p3, 3: p4, 7: gear,
+        **nav,
         # Fila 1: uptime, CPU total, C1-C4, ROOT
         8:  dibujar_panel_metrica(deck, tam, "Uptime", _fmt_tiempo(up_t), obtener_color_rango(pct_u), pct=pct_u),
         9:  dibujar_panel_metrica(deck, tam, "CPU T",  f"{int(cpu_t)}%", obtener_color_rango(cpu_t), pct=cpu_t),
-        14: dibujar_panel_metrica(deck, tam, "Root",   "PWD",       "#ff3333"),
         # Fila 2: RAM, SWAP, DISK
         16: dibujar_panel_metrica(deck, tam, "RAM",  f"{int(ram)}%", obtener_color_rango(ram), pct=ram),
         17: dibujar_panel_metrica(deck, tam, "SWAP", f"{int(swp)}%", obtener_color_rango(swp), pct=swp),
@@ -816,7 +1203,7 @@ ACCIONES_LABELS = {16:"1 MIN", 17:"2 MIN", 18:"3 MIN", 19:"4 MIN", 20:"5 MIN",
                    24:"15 MIN", 25:"30 MIN", 26:"1 HORA", 27:"2 HORAS"}
 
 def render_pagina_api(deck, tam):
-    p1, p2, p3, p4, gear = botones_navegacion(deck, tam)
+    nav = botones_navegacion(deck, tam)
     online = api_info["online"]
     estado = api_info["estado"]
     abierta = (estado == "Abierta")
@@ -850,8 +1237,7 @@ def render_pagina_api(deck, tam):
         return dibujar_accion_pro(deck, tam, label, cyan)
 
     imgs = {
-        # Fila 0: navegación (+ gear y X)
-        0: p1, 1: p2, 2: p3, 3: p4, 7: gear,
+        **nav,
         # Fila 1: estado API
         8:  dibujar_estado_pro(deck, tam, online, abierta),
         9:  dibujar_panel_2lineas(deck, tam, "Cuenta",  str(api_info["cuenta"]), cuenta_color),
@@ -878,35 +1264,48 @@ def render_pagina_api(deck, tam):
     return imgs
 
 def render_pagina_media(deck, tam):
-    p1, p2, p3, p4, gear = botones_navegacion(deck, tam)
+    nav = botones_navegacion(deck, tam)
+    icon_volup   = _buscar_icono("audio-volume-high")
+    icon_voldown = _buscar_icono("audio-volume-low")
+    icon_mute    = _buscar_icono("audio-volume-muted" if mute_activo else "audio-volume-medium")
+    icon_play    = _buscar_icono("media-playback-start")
     imgs = {
-        # Fila 0: navegación (+ gear y X)
-        0: p1, 1: p2, 2: p3, 3: p4, 7: gear,
+        **nav,
         # Última columna (col 7) vertical: VOL+ · MUTE · VOL-
-        15: dibujar_boton_fijo(deck, tam, "VOL+", "#663399"),
-        23: dibujar_boton_fijo(deck, tam, "MUTE", "#cc0000", relleno=mute_activo),
-        31: dibujar_boton_fijo(deck, tam, "VOL-", "#663399"),
+        15: dibujar_lanzador_web(deck, tam, "VOL+", "#663399", icon_volup),
+        23: dibujar_lanzador_web(deck, tam, "MUTE", "#cc0000", icon_mute),
+        31: dibujar_lanzador_web(deck, tam, "VOL-", "#663399", icon_voldown),
         # PLAY 2 lugares a la derecha del centro
-        22: dibujar_boton_fijo(deck, tam, "PLAY", "#0099ff"),
+        22: dibujar_lanzador_web(deck, tam, "PLAY", "#0099ff", icon_play),
     }
     return imgs
 
 def render_pagina_apps(deck, tam):
-    p1, p2, p3, p4, gear = botones_navegacion(deck, tam)
-    imgs = {
-        0: p1, 1: p2, 2: p3, 3: p4, 7: gear,
-    }
+    imgs = dict(botones_navegacion(deck, tam))
     for tecla, (cat, label, _cmd, color, icono) in APPS_PAGINA.items():
         imgs[tecla] = dibujar_lanzador(deck, tam, cat, color, icono=icono, fallback=label)
     return imgs
 
+def render_pagina_web(deck, tam):
+    imgs = dict(botones_navegacion(deck, tam))
+    for tecla, (label, _sub, url, color) in WEB_PAGINA.items():
+        ico = _favicon_path(url)
+        imgs[tecla] = dibujar_lanzador_web(deck, tam, label, color, ico)
+    return imgs
+
+def render_pagina_keys(deck, tam):
+    imgs = dict(botones_navegacion(deck, tam))
+    for tecla, (label, _combo, _keys, icono) in KEYS_PAGINA.items():
+        path = _buscar_icono(icono) if icono else None
+        imgs[tecla] = dibujar_lanzador_web(deck, tam, label, "#ffcc33", path)
+    return imgs
+
 def render_pagina_config(deck, tam):
-    p1, p2, p3, p4, gear = botones_navegacion(deck, tam)
+    nav = botones_navegacion(deck, tam)
     fb_pct  = (tiempo_fallback - TIEMPO_FALLBACK_MIN) / (TIEMPO_FALLBACK_MAX - TIEMPO_FALLBACK_MIN) * 100
     dim_pct = (tiempo_dim - TIEMPO_DIM_MIN) / (TIEMPO_DIM_MAX - TIEMPO_DIM_MIN) * 100
     imgs = {
-        # Fila 0: navegación (+ gear y X)
-        0: p1, 1: p2, 2: p3, 3: p4, 7: gear,
+        **nav,
         # Col 0 — Brillo (+ arriba, valor en medio, − abajo)
         8:  dibujar_panel_metrica(deck, tam, "Brillo", "+", "#ffaa00"),
         16: dibujar_panel_metrica(deck, tam, "Brillo", f"{brillo_actual}%", "#ffaa00", pct=brillo_actual),
@@ -919,6 +1318,11 @@ def render_pagina_config(deck, tam):
         10: dibujar_panel_metrica(deck, tam, "Dim", "+", "#cc66ff"),
         18: dibujar_panel_metrica(deck, tam, "Dim", _fmt_tiempo(tiempo_dim), "#cc66ff", pct=dim_pct),
         26: dibujar_panel_metrica(deck, tam, "Dim", "−", "#cc66ff"),
+        # Col 3 — Perfil visual (rota entre 1, 2, …)
+        11: dibujar_panel_metrica(deck, tam, "Perfil V", f"{perfil_visual}", "#33ff99"),
+        # Col 4 — Wallpaper ON/OFF
+        12: dibujar_panel_metrica(deck, tam, "Wallpaper", "ON" if wallpaper_on else "OFF",
+                                   "#ff66cc" if wallpaper_on else "#666666"),
         # Col 7 fila 1 — perfil Kiosko (justo debajo del gear CONF)
         15: dibujar_panel_metrica(deck, tam, "Perfil", "Kiosko", "#00ddff"),
         # Cols 3-6 (rows 1-3) libres para futuras configuraciones
@@ -946,7 +1350,6 @@ def iniciar_dashboard():
     threading.Thread(target=tareas_red_fondo, daemon=True).start()
     threading.Thread(target=tareas_api_fondo, daemon=True).start()
     last_net = psutil.net_io_counters()
-    img_negra = dibujar_negro(deck, tam)
     pagina_anterior = None
 
     try:
@@ -960,8 +1363,10 @@ def iniciar_dashboard():
                 except Exception: pass
                 _despertar = False
 
-            # Fallback a SIS si lleva mucho rato en otra página sin interacción
-            if pagina_actual != 1 and (ahora - ultimo_toque) > tiempo_fallback:
+            # Fallback a SIS si lleva mucho rato en otra página sin interacción.
+            # Excluyo WEB(6) y KEYS(7) — son páginas de uso prolongado.
+            if (pagina_actual not in (1, 6, 7)
+                    and (ahora - ultimo_toque) > tiempo_fallback):
                 pagina_actual = 1
                 forzar_redraw = True
 
@@ -986,6 +1391,10 @@ def iniciar_dashboard():
                     imgs = render_pagina_media(deck, tam)
                 elif pagina_actual == 4:
                     imgs = render_pagina_apps(deck, tam)
+                elif pagina_actual == 6:
+                    imgs = render_pagina_web(deck, tam)
+                elif pagina_actual == 7:
+                    imgs = render_pagina_keys(deck, tam)
                 else:
                     imgs = render_pagina_config(deck, tam)
                 last_net = cur_net
@@ -993,12 +1402,12 @@ def iniciar_dashboard():
                 if pagina_actual != pagina_anterior or forzar_redraw:
                     for k in range(deck.key_count()):
                         if k not in imgs:
-                            deck.set_key_image(k, img_negra)
+                            deck.set_key_image(k, _finalizar(deck, tam, None, k))
                     pagina_anterior = pagina_actual
                     forzar_redraw = False
 
                 for key, img in imgs.items():
-                    deck.set_key_image(key, img)
+                    deck.set_key_image(key, _finalizar(deck, tam, img, key))
 
             except Exception as e:
                 print(f"[ERR] {e} — intentando reconectar...", flush=True)
@@ -1013,7 +1422,6 @@ def iniciar_dashboard():
                         time.sleep(2)
                 tam = deck.key_image_format()['size']
                 deck.set_key_callback(boton_presionado)
-                img_negra = dibujar_negro(deck, tam)
                 pagina_anterior = None
                 print("[OK] reconectado", flush=True)
 
