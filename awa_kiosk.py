@@ -51,6 +51,7 @@ TIEMPO_DIM_MIN   = 60
 TIEMPO_DIM_MAX   = 7200    # 2 h
 TIEMPO_PASO      = 60      # 1 min para +/-
 DECK_SERIAL  = os.environ.get("STREAMDEB_DECK_SERIAL", "").strip()
+FORCE_DARK   = os.environ.get("STREAMDEB_FORCE_DARK", "0") == "1"
 BRILLO_MIN   = 10
 BRILLO_MAX   = 100
 BRILLO_PASO  = 10
@@ -124,6 +125,8 @@ def _en_horario_light():
     return ini <= minutos < fin
 
 def tema_actual():
+    if FORCE_DARK:
+        return "dark"
     if tema_override is not None:
         return tema_override
     return "light" if _en_horario_light() else "dark"

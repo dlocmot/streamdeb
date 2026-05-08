@@ -25,6 +25,7 @@ except Exception as e:
 
 # --- CONFIGURACIÓN ---
 FONT_PATH    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+DECK_SERIAL  = os.environ.get("STREAMDEB_DECK_SERIAL", "").strip()
 CICLO_UPTIME = 14400
 BRILLO_MIN   = 10           # mínimo (no apaga del todo)
 BRILLO_MAX   = 100
@@ -92,7 +93,7 @@ def _lanzar(cmd):
 
 APPS_PAGINA = {
     # tecla: (categoría, app, comando, color, icono)
-    8:  ("Dev",   "Term",    "mate-terminal",                                "#33ccff", "utilities-terminal"),
+    8:  ("Dev",   "Term",    "mate-terminal --working-directory=/home/jfqp",  "#33ccff", "utilities-terminal"),
     9:  ("Dev",   "Arduino", "flatpak run cc.arduino.IDE2",                  "#33ccff", "cc.arduino.IDE2"),
     10: ("Dev",   "GitHub",  "flatpak run io.github.shiftey.Desktop",        "#33ccff", "io.github.shiftey.Desktop"),
     11: ("Web",   "Brave",   "/usr/bin/brave-browser-stable",                "#ff9933", "brave-browser"),
@@ -103,8 +104,11 @@ APPS_PAGINA = {
     19: ("Sec",   "Burp",    "/opt/BurpSuiteCommunity/BurpSuiteCommunity",   "#ff3333", "/opt/BurpSuiteCommunity/.install4j/BurpSuiteCommunity.png"),
     20: ("Net",   "Winbox",  "wine /home/jfqp/Downloads/winbox.exe",         "#ffcc33", None),
     24: ("Util",  "AnyDesk", "flatpak run com.anydesk.Anydesk",              "#aaaaaa", "com.anydesk.Anydesk"),
-    25: ("Util",  "SysMon",  "mate-system-monitor",                          "#aaaaaa", "utilities-system-monitor"),
-    26: ("Util",  "VBox",    "VirtualBox",                                   "#aaaaaa", "virtualbox"),
+    25: ("Util",  "RustDesk","rustdesk",                                     "#aaaaaa", "rustdesk"),
+    29: ("Util",  "SysMon",  "mate-system-monitor",                          "#aaaaaa", "utilities-system-monitor"),
+    30: ("Util",  "VBox",    "VirtualBox",                                   "#aaaaaa", "virtualbox"),
+    26: ("Util",  "Pluma",   "pluma",                                        "#aaaaaa", "accessories-text-editor"),
+    27: ("Util",  "Calc",    "mate-calc",                                    "#aaaaaa", "accessories-calculator"),
 }
 
 
@@ -704,8 +708,26 @@ def _abrir_deck():
         decks = DeviceManager().enumerate()
         if not decks:
             return None
-        d = decks[0]
-        d.open()
+        d = None
+        for cand in decks:
+            try:
+                cand.open()
+            except Exception as e:
+                print(f"[WARN] open: {e}", flush=True)
+                continue
+            try:
+                serial = cand.get_serial_number()
+            except Exception:
+                serial = ""
+            if DECK_SERIAL and serial != DECK_SERIAL:
+                print(f"[SKIP] serial={serial} (busco {DECK_SERIAL})", flush=True)
+                cand.close()
+                continue
+            d = cand
+            print(f"[DECK] abierto serial={serial}", flush=True)
+            break
+        if d is None:
+            return None
         time.sleep(0.3)
         d.reset()
         d.set_brightness(brillo_actual)
