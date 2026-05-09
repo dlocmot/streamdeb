@@ -1,5 +1,5 @@
 """Plugin DOCKER (página 10): lista y control de contenedores.
-Widget en SIS tecla 31 muestra running/total y abre la página."""
+Widget en SIS tecla 27 muestra running/total y abre la página."""
 import subprocess
 import time
 
@@ -8,7 +8,7 @@ from core.widgets import dibujar_panel_metrica
 
 # Estado live del daemon docker (mutado por tareas_fondo)
 docker_info = {"available": False, "running": 0, "containers": []}
-TECLA_SIS = 31  # entry button en SIS que abre la página DOCKER
+TECLA_SIS = 27  # entry button en SIS que abre la página DOCKER
 
 
 def tareas_fondo():

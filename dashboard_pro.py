@@ -369,13 +369,13 @@ def _accion_boton(deck, tecla):
         return
 
     if pagina_actual == 1:
-        # Tecla 31 SIS: abre página DOCKER (id 10)
-        if tecla == 31:
+        # Tecla 27 SIS: abre página DOCKER (id 10)
+        if tecla == 27:
             if pagina_actual != 10:
                 pagina_actual = 10
                 forzar_redraw = True
-        # Tecla 20 SIS (Clima consolidado): abre página CLIMA (id 11)
-        elif tecla == 20:
+        # Tecla 19 SIS (Clima consolidado): abre página CLIMA (id 11)
+        elif tecla == 19:
             if pagina_actual != 11:
                 pagina_actual = 11
                 forzar_redraw = True
@@ -539,8 +539,8 @@ def boton_presionado(deck, tecla, estado):
                                  args=(time.time() - t0,), daemon=True).start()
         return
 
-    # Tecla Pomodoro (SIS/15): corta = avanza estado, larga ≥2s = reset
-    if pagina_actual == 1 and tecla == 15 and not modo_dim_activo:
+    # Tecla Pomodoro (SIS/11): corta = avanza estado, larga ≥2s = reset
+    if pagina_actual == 1 and tecla == 11 and not modo_dim_activo:
         if estado:
             _pomo_press_t = time.time()
         else:

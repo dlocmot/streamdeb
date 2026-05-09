@@ -147,7 +147,7 @@ def _trocear_banner(imagen_full, tecla_base, W, H, cols, imgs):
 # --- Widgets en SIS (4 tiles 20-23) ---
 
 def widget_para_sistema(deck, tam):
-    """Widget consolidado en SIS tecla 20: icono + temp + min/max.
+    """Widget consolidado en SIS tecla 19: icono + temp + min/max.
     Tap abre página CLIMA (id 11) con el detalle completo."""
     imgs = {}
     if clima_info["online"] and clima_info["temp"] is not None:
@@ -155,13 +155,13 @@ def widget_para_sistema(deck, tam):
         ico_path = _iconify_png(ico_name, ico_color, 256)
         tmin = int(round(clima_info['temp_min'] or 0))
         tmax = int(round(clima_info['temp_max'] or 0))
-        imgs[20] = dibujar_lanzador_web(
+        imgs[19] = dibujar_lanzador_web(
             deck, tam,
             f"{clima_info['temp']:.0f}° {tmin}/{tmax}",
             "#" + ico_color, ico_path,
         )
     else:
-        imgs[20] = dibujar_panel_metrica(deck, tam, "Clima", "—", "#666666")
+        imgs[19] = dibujar_panel_metrica(deck, tam, "Clima", "—", "#666666")
     return imgs
 
 
