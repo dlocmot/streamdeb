@@ -38,14 +38,19 @@ Fila 0 (visible en todas las páginas):
 #### Página SIS (default)
 
 ```
-Fila 1:  Uptime  CPU T   Cores  POMO    .    .    .    .
+Fila 1:  Uptime  Cores   Temp    .      .    .    .    .
 Fila 2:  RAM     SWAP    ROOT   Clima   .    .    .    .
-Fila 3:  Net     Pings   Docker  .      .    .    .    .
+Fila 3:  Net     Pings   Docker  POMO   .    .    .    .
 ```
 
-- **Cores** (tecla 10): 4 barras verticales (1 por core). Tap → subpágina
-  CORES (id 13) con detalle C1-C4, CPU total, top 5 procesos por CPU y
-  top 5 por memoria (en GB).
+- **Cores** (tecla 9): título `Cores N%` (CPU total) + 4 barras
+  verticales por core. Tap → subpágina CORES (id 13) con C1-C4 detalle,
+  top 5 procesos CPU y top 5 memoria (en GB).
+- **Temp** (tecla 10): título `Temp N°` (avg de cores) + 4 barras de
+  temperatura. Barra mapea [65..105°C]→0..100% (calibrada para Celeron
+  J4105 fanless). Color: ≤82 verde, 82-92 amarillo, 92-100 ámbar,
+  >100 rojo. Tap → subpágina TEMPS (id 16) con Package + cores + otros
+  sensores (acpitz, wifi).
 - **Net** (tecla 24): 2 barras D/U escaladas al pico observado. Tap →
   subpágina NET (id 15) con DOWN/UP actual + pico, totales RX/TX,
   paquetes y errores/drops.
@@ -54,7 +59,7 @@ Fila 3:  Net     Pings   Docker  .      .    .    .    .
   max·min) + IPs pública y local.
 - **Clima** (tecla 19): icono WMO + temp actual + min/max. Tap → página
   CLIMA (id 11) con banner + meteograma 24h + strip 12h.
-- **POMO** (tecla 11): pomodoro 25/5. Tap corto avanza estado, long-press
+- **POMO** (tecla 27): pomodoro 25/5. Tap corto avanza estado, long-press
   ≥2s resetea.
 - **Docker** (tecla 26): running/total. Tap → página DOCKER (id 10).
 

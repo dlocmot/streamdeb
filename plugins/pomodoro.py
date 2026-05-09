@@ -1,4 +1,4 @@
-"""Plugin POMODORO: widget en SIS tecla 11 (foco 25min + break 5min).
+"""Plugin POMODORO: widget en SIS tecla 27 (foco 25min + break 5min).
 - Tap corto: avanza estado (idle→running→idle, o break→idle).
 - Long-press ≥ LONGPRESS_S: reset a idle.
 - Notificación desktop al fin de cada fase."""
@@ -13,7 +13,7 @@ from core.widgets import dibujar_lanzador_web, dibujar_panel_metrica
 
 POMODORO_FOCUS_S = 25 * 60
 POMODORO_BREAK_S = 5  * 60
-TECLA_SIS        = 11
+TECLA_SIS        = 27
 
 # Estado interno (mutado por _pomodoro_evento y tareas_fondo)
 state    = "idle"     # idle | running | break

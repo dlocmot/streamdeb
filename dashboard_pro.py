@@ -379,8 +379,8 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 11:
                 pagina_actual = 11
                 forzar_redraw = True
-        # Tecla 10 SIS (Cores consolidados): abre página CORES detalle (id 13)
-        elif tecla == 10:
+        # Tecla 9 SIS (Cores consolidados): abre página CORES detalle (id 13)
+        elif tecla == 9:
             if pagina_actual != 13:
                 pagina_actual = 13
                 forzar_redraw = True
@@ -393,6 +393,11 @@ def _accion_boton(deck, tecla):
         elif tecla == 24:
             if pagina_actual != 15:
                 pagina_actual = 15
+                forzar_redraw = True
+        # Tecla 10 SIS (Temp cores): abre página TEMPS detalle (id 16)
+        elif tecla == 10:
+            if pagina_actual != 16:
+                pagina_actual = 16
                 forzar_redraw = True
         return
 
@@ -544,8 +549,8 @@ def boton_presionado(deck, tecla, estado):
                                  args=(time.time() - t0,), daemon=True).start()
         return
 
-    # Tecla Pomodoro (SIS/11): corta = avanza estado, larga ≥2s = reset
-    if pagina_actual == 1 and tecla == 11 and not modo_dim_activo:
+    # Tecla Pomodoro (SIS/27): corta = avanza estado, larga ≥2s = reset
+    if pagina_actual == 1 and tecla == 27 and not modo_dim_activo:
         if estado:
             _pomo_press_t = time.time()
         else:
@@ -807,6 +812,9 @@ def render_pagina_pings(deck, tam):
 def render_pagina_net(deck, tam):
     return plugin_sistema.render_pagina_net(deck, tam, botones_navegacion(deck, tam))
 
+def render_pagina_temps(deck, tam):
+    return plugin_sistema.render_pagina_temps(deck, tam, botones_navegacion(deck, tam))
+
 
 def render_pagina_banner(deck, tam):
     return plugin_banner.render_pagina_banner(deck, tam, DECK_COLS, DECK_ROWS, api_info)
@@ -843,6 +851,7 @@ PAGINAS_RENDER = {
     13: render_pagina_cores,
     14: render_pagina_pings,
     15: render_pagina_net,
+    16: render_pagina_temps,
 }
 
 
