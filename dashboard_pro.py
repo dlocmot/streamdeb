@@ -63,6 +63,23 @@ api_info = {
     "usuario": "---", "adminLocked": False,
     "segundos": 0, "initial_seconds": 0,
 }
+
+# --- Pomodoro ---
+POMODORO_FOCUS_S = 25 * 60    # 25 min de foco
+POMODORO_BREAK_S = 5  * 60    # 5 min de descanso
+pomodoro_state   = "idle"     # idle | running | break
+pomodoro_phase_t = 0.0        # epoch en que arrancó la fase actual
+
+# --- Docker ---
+docker_info = {"available": False, "running": 0, "containers": []}  # lista de (name, status_running_bool, image)
+
+# --- Clima Arequipa (Open-Meteo) ---
+CLIMA_LAT, CLIMA_LON = -16.4090, -71.5375  # Arequipa, Perú
+clima_info = {
+    "online": False, "temp": None, "temp_min": None, "temp_max": None,
+    "humedad": None, "viento": None, "weather_code": None, "ts": 0,
+    "hourly": [],   # lista de dicts: {hora, temp, code, precip}
+}
 pagina_actual = 1     # 1=sistema · 2=API · 3=multimedia · 4=apps · 5=configuración
 forzar_redraw = False
 brillo_actual    = 75
@@ -70,6 +87,7 @@ tiempo_fallback  = 300    # s sin interacción en otra pág. → vuelve a SIS
 tiempo_dim       = 1800   # s sin interacción → atenúa el deck
 perfil_visual    = 1      # 1 = con marcos · 2 = sin marco externo
 PERFILES_TOTAL   = 2
+banner_enabled   = False  # Si True, la auto-fallback va a página IDLE/BANNER (9) en vez de SIS
 
 
 # --- Helpers ---
@@ -446,6 +464,103 @@ def tareas_api_fondo():
         time.sleep(2)
 
 
+def tareas_pomodoro_fondo():
+    """Tick de estado para que las transiciones (focus→break→idle) ocurran
+    aunque el usuario no esté viendo SIS."""
+    while True:
+        try: _pomodoro_tick()
+        except Exception as e: print(f"[POMO] tick: {e}", flush=True)
+        time.sleep(2)
+
+
+def tareas_docker_fondo():
+    """Lista contenedores docker cada 10s. Si docker no está, queda available=False."""
+    while True:
+        try:
+            res = subprocess.run(
+                ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Image}}"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if res.returncode == 0:
+                containers = []
+                running = 0
+                for line in res.stdout.strip().splitlines():
+                    parts = line.split("\t")
+                    if len(parts) >= 2:
+                        name, state = parts[0], parts[1]
+                        image = parts[2] if len(parts) > 2 else ""
+                        is_run = (state == "running")
+                        if is_run:
+                            running += 1
+                        containers.append((name, is_run, image))
+                docker_info["available"] = True
+                docker_info["running"]   = running
+                docker_info["containers"] = containers
+            else:
+                docker_info["available"] = False
+        except FileNotFoundError:
+            docker_info["available"] = False
+        except Exception as e:
+            docker_info["available"] = False
+            print(f"[DOCKER] error: {e}", flush=True)
+        time.sleep(10)
+
+
+def tareas_clima_fondo():
+    """Open-Meteo API: temp, humedad, viento, min/max. Refresh cada 15 min."""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={CLIMA_LAT}&longitude={CLIMA_LON}"
+        f"&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+        f"&daily=temperature_2m_max,temperature_2m_min"
+        f"&hourly=temperature_2m,weather_code,precipitation_probability"
+        f"&forecast_days=2"
+        f"&timezone=America/Lima"
+    )
+    while True:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "streamdeb/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            cur = data.get("current", {})
+            daily = data.get("daily", {})
+            hourly = data.get("hourly", {})
+            # Construir lista hourly empezando desde la hora actual (sin pasadas)
+            h_times = hourly.get("time", []) or []
+            h_temps = hourly.get("temperature_2m", []) or []
+            h_codes = hourly.get("weather_code", []) or []
+            h_precs = hourly.get("precipitation_probability", []) or []
+            now_iso = datetime.datetime.now().strftime("%Y-%m-%dT%H:00")
+            inicio = 0
+            for i, t in enumerate(h_times):
+                if t >= now_iso:
+                    inicio = i
+                    break
+            hourly_list = []
+            for i in range(inicio, min(inicio + 24, len(h_times))):
+                hourly_list.append({
+                    "hora":   h_times[i][-5:],  # "HH:MM"
+                    "temp":   h_temps[i] if i < len(h_temps) else None,
+                    "code":   h_codes[i] if i < len(h_codes) else None,
+                    "precip": h_precs[i] if i < len(h_precs) else None,
+                })
+            clima_info.update({
+                "online": True,
+                "temp":     cur.get("temperature_2m"),
+                "humedad":  cur.get("relative_humidity_2m"),
+                "viento":   cur.get("wind_speed_10m"),
+                "weather_code": cur.get("weather_code"),
+                "temp_min": (daily.get("temperature_2m_min") or [None])[0],
+                "temp_max": (daily.get("temperature_2m_max") or [None])[0],
+                "hourly":   hourly_list,
+                "ts": time.time(),
+            })
+        except Exception as e:
+            clima_info["online"] = False
+            print(f"[CLIMA] error: {e}", flush=True)
+        time.sleep(15 * 60)
+
+
 def api_post_comando(payload):
     try:
         body = json.dumps(payload).encode('utf-8')
@@ -479,6 +594,7 @@ WALLPAPER_GALAXY = os.path.expanduser("~/.cache/streamdeb/wallpaper.jpg")
 # Default para XL; se sobreescribe desde deck.key_layout() en _abrir_deck()
 DECK_COLS, DECK_ROWS = 8, 4
 WALLPAPER_BRILLO     = 0.4      # 1.0 = original · 0.4 = 40% (oscurecido para destaque de botones)
+WALLPAPER_SATURACION = 1.25     # 1.0 = original · 1.25 = +25% saturación
 LONGPRESS_S          = 2.0      # umbral pulsación larga (SIS→CONF, wallpaper→OFF)
 wallpaper_idx     = 0           # 0 = OFF
 _wallpaper_paths  = None        # lista [None, path1, path2, …, path30]
@@ -520,6 +636,8 @@ def _wallpaper_cargar(tamaño, idx):
         img = Image.open(paths[idx]).convert("RGB")
         total = (DECK_COLS * tamaño[0], DECK_ROWS * tamaño[1])
         img = img.resize(total, Image.LANCZOS)
+        if WALLPAPER_SATURACION != 1.0:
+            img = ImageEnhance.Color(img).enhance(WALLPAPER_SATURACION)
         if WALLPAPER_BRILLO != 1.0:
             img = ImageEnhance.Brightness(img).enhance(WALLPAPER_BRILLO)
         _wallpaper_cache[idx] = img
@@ -728,26 +846,45 @@ def dibujar_panel_2lineas(deck, tamaño, titulo, valor, frame_color, valor_color
     return imagen
 
 def dibujar_estado_pro(deck, tamaño, online, abierta):
+    """Estado AWA visual: aro + círculo interno.
+    Abierta = verde, círculo latiendo. Cerrada = rojo, círculo fijo.
+    Offline = gris, círculo fijo y aro tenue."""
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
     f_tit = ImageFont.truetype(FONT_PATH, 13)
+
     if not online:
-        color, texto = "#666666", "OFFLINE"
-        if _con_marco():
-            dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+        color = "#666666"
     elif abierta:
-        color, texto = "white", "ABIERTA"
-        dibujo.rounded_rectangle(rect, radius=10, fill="#22aa33")
+        color = "#22dd44"
     else:
-        color, texto = "#ff3333", "CERRADA"
-        if _con_marco():
-            dibujo.rounded_rectangle(rect, radius=10, outline=color, width=3)
+        color = "#ff3333"
+
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+
+    # Header consistente con el resto de paneles
     dibujo.text((tamaño[0]//2, 16), "Estado", font=f_tit, fill=color, anchor="mm")
     dibujo.line((10, 28, tamaño[0]-11, 28), fill=color, width=1)
-    f_val = _fit_font(dibujo, texto, tamaño[0]-18, 20, 12)
-    dibujo.text((tamaño[0]//2, 60), texto, font=f_val, fill=color, anchor="mm")
+
+    # Visual: aro + círculo interno (latiendo si abierta)
+    cx, cy = tamaño[0]//2, 62
+    R = 24
+    grosor_aro = 4
+    dibujo.ellipse((cx-R, cy-R, cx+R, cy+R), outline=color, width=grosor_aro)
+
+    if online and abierta:
+        # Latido: radio oscila entre ~7 y ~16 con periodo no entero
+        # para que samples a 1 Hz devuelvan valores variados.
+        fase = (math.sin(2 * math.pi * time.time() / 2.7) + 1) / 2  # 0..1
+        r_int = int(7 + fase * 9)
+    else:
+        r_int = 12
+    dibujo.ellipse((cx-r_int, cy-r_int, cx+r_int, cy+r_int), fill=color)
     return imagen
+
+_AWA_FONDO_RGBA = (0, 26, 38, 51)  # #001a26 con 20% opacidad (80% transparente al wallpaper)
 
 def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
     """Acción con marco redondeado. drain en [0,1]: 0=lleno (recién pulsado),
@@ -759,13 +896,13 @@ def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
     if peligro:
         dibujo.rounded_rectangle(rect, radius=10, fill=color)
     elif drain is None:
-        dibujo.rounded_rectangle(rect, radius=10, fill="#001a26")
+        dibujo.rounded_rectangle(rect, radius=10, fill=_AWA_FONDO_RGBA)
         if _con_marco():
             dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
     else:
         d = max(0.0, min(1.0, drain))
-        # Base oscura
-        dibujo.rounded_rectangle(rect, radius=10, fill="#001a26")
+        # Base oscura translúcida
+        dibujo.rounded_rectangle(rect, radius=10, fill=_AWA_FONDO_RGBA)
         if d < 1.0:
             # Capa de agua (rect redondeado lleno) + máscara que recorta
             # solo la franja inferior — efecto "el agua baja al vaciarse".
@@ -1033,7 +1170,7 @@ def dibujar_negro(deck, tamaño):
 
 def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
-    global tiempo_fallback, tiempo_dim, perfil_visual
+    global tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled
 
     # En banner idle (9), cualquier tecla no-nav despierta a SIS.
     # Las nav (0-7) caen al routing normal de abajo.
@@ -1080,6 +1217,30 @@ def _accion_boton(deck, tecla):
         return
 
     if pagina_actual == 1:
+        # Tecla 31 SIS: abre página DOCKER (id 10)
+        if tecla == 31:
+            if pagina_actual != 10:
+                pagina_actual = 10
+                forzar_redraw = True
+        # Teclas 20-23 SIS (panel clima): abre página CLIMA (id 11)
+        elif tecla in (20, 21, 22, 23):
+            if pagina_actual != 11:
+                pagina_actual = 11
+                forzar_redraw = True
+        return
+
+    if pagina_actual == 10:
+        # 8..(8+N-1) → toggle start/stop del container correspondiente
+        idx = tecla - 8
+        if 0 <= idx < len(docker_info["containers"]):
+            name, running, _ = docker_info["containers"][idx]
+            cmd = "stop" if running else "start"
+            try:
+                subprocess.run(["docker", cmd, name], timeout=10,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"[DOCKER] {cmd} {name}", flush=True)
+            except Exception as e:
+                print(f"[DOCKER] error {cmd} {name}: {e}", flush=True)
         return
 
     if pagina_actual == 2:
@@ -1178,6 +1339,11 @@ def _accion_boton(deck, tecla):
             forzar_redraw = True
         # Wallpaper: la rotación / apagado se maneja en boton_presionado
         # vía detección de press corto vs long-press (ver _wallpaper_evento).
+        # Banner ON/OFF
+        elif tecla == 13:
+            banner_enabled = not banner_enabled
+            print(f"[CONFIG] banner_enabled={banner_enabled}", flush=True)
+            forzar_redraw = True
         # Perfil Kiosko: pasa este deck (B) a AWA. Lanza awa_kiosk pineado
         # al mismo serial como servicio transient, luego para streamdeb.
         elif tecla == 15:
@@ -1216,6 +1382,7 @@ def _accion_boton(deck, tecla):
 
 _sis_press_t       = None  # timestamp del press en tecla SIS (0)
 _wallpaper_press_t = None  # timestamp del press en tecla wallpaper (CONF/12)
+_pomo_press_t      = None  # timestamp del press en tecla Pomodoro (SIS/15)
 
 def _wallpaper_evento(held):
     """Procesa la liberación de la tecla wallpaper. held = segundos pulsada."""
@@ -1245,7 +1412,7 @@ def _sis_evento(held):
     print(f"[NAV] SIS {etiqueta} ({held:.2f}s)", flush=True)
 
 def boton_presionado(deck, tecla, estado):
-    global ultimo_toque, _despertar, _wallpaper_press_t, _sis_press_t
+    global ultimo_toque, _despertar, _wallpaper_press_t, _sis_press_t, _pomo_press_t
     ultimo_toque = time.time()
 
     # Tecla SIS (0): corta = SIS, larga ≥2s = CONF (en cualquier página)
@@ -1257,6 +1424,18 @@ def boton_presionado(deck, tecla, estado):
             _sis_press_t = None
             if t0 is not None:
                 threading.Thread(target=_sis_evento,
+                                 args=(time.time() - t0,), daemon=True).start()
+        return
+
+    # Tecla Pomodoro (SIS/15): corta = avanza estado, larga ≥2s = reset
+    if pagina_actual == 1 and tecla == 15 and not modo_dim_activo:
+        if estado:
+            _pomo_press_t = time.time()
+        else:
+            t0 = _pomo_press_t
+            _pomo_press_t = None
+            if t0 is not None:
+                threading.Thread(target=_pomodoro_evento,
                                  args=(time.time() - t0,), daemon=True).start()
         return
 
@@ -1438,6 +1617,93 @@ def botones_navegacion(deck, tam):
     # CONF se entra con long-press ≥2s en SIS (no tiene nav button).
     return {0: p1, 1: p2, 2: p3, 3: p4, 5: p_web, 6: p_keys, 7: p_vent}
 
+def _pomodoro_tick():
+    """Avanza el estado: focus expira → break, break expira → idle.
+    Devuelve (state, restante_s, total_s, color, label)."""
+    global pomodoro_state, pomodoro_phase_t
+    ahora = time.time()
+    if pomodoro_state == "running":
+        elapsed = ahora - pomodoro_phase_t
+        if elapsed >= POMODORO_FOCUS_S:
+            pomodoro_state = "break"
+            pomodoro_phase_t = ahora
+            elapsed = 0.0
+            try:
+                subprocess.Popen(["notify-send", "Pomodoro", "Foco completo · descanso",
+                                   "-t", "8000"], env=_env_sesion(),
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception: pass
+    if pomodoro_state == "break":
+        elapsed = ahora - pomodoro_phase_t
+        if elapsed >= POMODORO_BREAK_S:
+            pomodoro_state = "idle"
+            pomodoro_phase_t = 0.0
+            try:
+                subprocess.Popen(["notify-send", "Pomodoro", "Descanso terminado · listo",
+                                   "-t", "8000"], env=_env_sesion(),
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception: pass
+
+    if pomodoro_state == "running":
+        rest = max(0, POMODORO_FOCUS_S - (ahora - pomodoro_phase_t))
+        return ("running", rest, POMODORO_FOCUS_S, "#ff6644", "Foco")
+    if pomodoro_state == "break":
+        rest = max(0, POMODORO_BREAK_S - (ahora - pomodoro_phase_t))
+        return ("break", rest, POMODORO_BREAK_S, "#33dd66", "Break")
+    return ("idle", POMODORO_FOCUS_S, POMODORO_FOCUS_S, "#888888", "Pomo")
+
+
+def _pomodoro_evento(held):
+    """held >=2s = reset a idle. Tap corto = avanza estado."""
+    global pomodoro_state, pomodoro_phase_t, forzar_redraw
+    ahora = time.time()
+    if held >= LONGPRESS_S:
+        pomodoro_state = "idle"
+        pomodoro_phase_t = 0.0
+        print(f"[POMO] reset (long {held:.1f}s)", flush=True)
+    else:
+        if pomodoro_state == "idle":
+            pomodoro_state = "running"
+            pomodoro_phase_t = ahora
+        elif pomodoro_state == "running":
+            pomodoro_state = "idle"
+            pomodoro_phase_t = 0.0
+        elif pomodoro_state == "break":
+            pomodoro_state = "idle"
+            pomodoro_phase_t = 0.0
+        print(f"[POMO] state={pomodoro_state}", flush=True)
+    forzar_redraw = True
+
+
+# --- Clima Arequipa: iconos por código WMO ---
+def _clima_icono(code):
+    """Mapea WMO weather_code a (iconify_name, color_hex)."""
+    if code is None:
+        return ("mdi:weather-cloudy-alert", "888888")
+    if code == 0:                  return ("mdi:weather-sunny",            "ffcc33")
+    if code in (1, 2):             return ("mdi:weather-partly-cloudy",    "ffaa66")
+    if code == 3:                  return ("mdi:weather-cloudy",           "aaaaaa")
+    if code in (45, 48):           return ("mdi:weather-fog",              "999999")
+    if 51 <= code <= 57:           return ("mdi:weather-pouring",          "66aadd")
+    if 61 <= code <= 67:           return ("mdi:weather-rainy",            "4488cc")
+    if 71 <= code <= 77:           return ("mdi:weather-snowy",            "ddeeff")
+    if 80 <= code <= 82:           return ("mdi:weather-pouring",          "4488cc")
+    if 85 <= code <= 86:           return ("mdi:weather-snowy-heavy",      "ddeeff")
+    if 95 <= code <= 99:           return ("mdi:weather-lightning",        "cc66ff")
+    return ("mdi:weather-cloudy", "aaaaaa")
+
+def _clima_descripcion(code):
+    if code is None: return "—"
+    return {
+        0: "Despejado", 1: "Mayorment.", 2: "Parc nubl.", 3: "Nublado",
+        45: "Niebla", 48: "Niebla esc",
+        51: "Llov susv", 53: "Llov susv", 55: "Llov susv",
+        61: "Lluvia",  63: "Lluvia",     65: "Lluv fuer",
+        71: "Nieve",   73: "Nieve",      75: "Nieve int",
+        80: "Chubasco",81: "Chubasco",   82: "Chub fuer",
+        95: "Tormenta",96: "Torm gran",  99: "Torm gran",
+    }.get(code, "—")
+
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     global max_visto_down, max_visto_up
     ahora = time.time()
@@ -1480,6 +1746,43 @@ def render_pagina_sistema(deck, tam, last_net, cur_net):
             imgs[28+idx] = dibujar_panel_metrica(deck, tam, lb, f"{ms:.1f}", color, pct=pct, sub="ms")
         else:
             imgs[28+idx] = dibujar_panel_metrica(deck, tam, lb, "Err", "#666666", pct=0)
+
+    # Tecla 15: Pomodoro (debajo de VENT)
+    p_state, p_rest, p_total, p_color, p_label = _pomodoro_tick()
+    p_pct = ((p_total - p_rest) / p_total * 100) if p_total > 0 else 0
+    p_val = _fmt_tiempo(int(p_rest)) if p_state != "idle" else "READY"
+    imgs[15] = dibujar_panel_metrica(deck, tam, p_label, p_val, p_color, pct=p_pct)
+
+    # Teclas 20-23: Clima Arequipa (4 tiles)
+    if clima_info["online"] and clima_info["temp"] is not None:
+        ico_name, ico_color = _clima_icono(clima_info["weather_code"])
+        ico_path = _iconify_png(ico_name, ico_color, 256)
+        cond_txt = _clima_descripcion(clima_info["weather_code"])
+        imgs[20] = dibujar_lanzador_web(deck, tam, cond_txt, "#" + ico_color, ico_path)
+        imgs[21] = dibujar_panel_metrica(deck, tam, "Temp",
+                                          f"{clima_info['temp']:.0f}°", "#ffaa66")
+        imgs[22] = dibujar_panel_metrica(deck, tam, "Humedad",
+                                          f"{int(clima_info['humedad'] or 0)}%", "#66aadd",
+                                          sub=f"{int(clima_info['viento'] or 0)} km/h")
+        tmin = int(round(clima_info['temp_min'] or 0))
+        tmax = int(round(clima_info['temp_max'] or 0))
+        imgs[23] = dibujar_panel_metrica(deck, tam, "Min/Max",
+                                          f"{tmin}°/{tmax}°", "#cc66ff")
+    else:
+        imgs[20] = dibujar_panel_metrica(deck, tam, "Clima", "—", "#666666")
+        imgs[21] = dibujar_panel_metrica(deck, tam, "AQP", "off", "#666666")
+        imgs[22] = dibujar_panel_metrica(deck, tam, "API", "—", "#666666")
+        imgs[23] = dibujar_panel_metrica(deck, tam, "Open-M.", "wait", "#666666")
+
+    # Tecla 31: Entry a página DOCKER
+    if docker_info["available"]:
+        d_color = "#3399ff" if docker_info["running"] > 0 else "#666666"
+        d_val = f"{docker_info['running']}/{len(docker_info['containers'])}"
+    else:
+        d_color = "#444444"
+        d_val = "off"
+    imgs[31] = dibujar_panel_metrica(deck, tam, "Docker", d_val, d_color)
+
     return imgs
 
 DURACION_A_TECLA = {60:16, 120:17, 180:18, 240:19, 300:20,
@@ -1585,6 +1888,207 @@ def render_pagina_keys(deck, tam):
         imgs[tecla] = dibujar_lanzador_web(deck, tam, label, "#ffcc33", path)
     return imgs
 
+# --- Clima: helpers de gradiente y dibujo de panel world-class ---
+_TEMP_GRADIENT = [
+    (-10, (59, 91, 219)), (0, (77, 171, 247)), (15, (169, 227, 75)),
+    (22, (255, 212, 59)), (30, (255, 146, 43)), (38, (224, 49, 49)),
+]
+
+def _temp_color(t):
+    if t is None: return (136, 136, 136)
+    g = _TEMP_GRADIENT
+    if t <= g[0][0]: return g[0][1]
+    if t >= g[-1][0]: return g[-1][1]
+    for i in range(len(g) - 1):
+        (t1, c1), (t2, c2) = g[i], g[i + 1]
+        if t1 <= t < t2:
+            r = (t - t1) / (t2 - t1)
+            return tuple(int(c1[k] + (c2[k] - c1[k]) * r) for k in range(3))
+    return (255, 255, 255)
+
+def _hex(rgb): return "#%02x%02x%02x" % rgb
+
+def _icono_clima_pil(code, size):
+    name, col = _clima_icono(code)
+    p = _iconify_png(name, col, 256)
+    if not p or not os.path.exists(p):
+        return None
+    try:
+        ico = Image.open(p).convert("RGBA")
+        return ico.resize((size, size), Image.LANCZOS)
+    except Exception:
+        return None
+
+def _trocear_banner_en_imgs(imagen_full, tecla_base, W, H, cols, imgs):
+    for i in range(cols):
+        tile = imagen_full.crop((i * W, 0, (i + 1) * W, H)).convert("RGBA")
+        tile._streamdeb_stable = False  # contenido cambia con datos clima
+        imgs[tecla_base + i] = tile
+
+
+def render_pagina_clima(deck, tam):
+    """Panel world-class de clima Arequipa, 3 bandas:
+    Fila 1 (8-15): Ahora — icono+temp grande izq, detalles + ciudad+hora der
+    Fila 2 (16-23): Meteograma 12h — curva temp + barras lluvia
+    Fila 3 (24-31): Strip horario 12h paso 2h
+    """
+    W, H = tam
+    imgs = dict(botones_navegacion(deck, tam))
+    horas = clima_info.get("hourly", [])
+
+    # === BANDA 1: AHORA (768×96) ===
+    banner = Image.new("RGB", (8 * W, H), (13, 27, 42))
+    d = ImageDraw.Draw(banner)
+    if clima_info.get("online") and clima_info.get("temp") is not None:
+        # Izquierda: icono grande + temp + condición
+        ico = _icono_clima_pil(clima_info["weather_code"], 64)
+        if ico is not None:
+            banner.paste(ico, (12, 16), ico)
+        f_temp = ImageFont.truetype(FONT_PATH, 64)
+        f_cond = ImageFont.truetype(FONT_PATH, 14)
+        col_temp = _temp_color(clima_info["temp"])
+        d.text((92, 36), f"{int(round(clima_info['temp']))}°",
+               font=f_temp, fill=col_temp, anchor="lm")
+        d.text((92, 78), _clima_descripcion(clima_info["weather_code"]),
+               font=f_cond, fill=(180, 180, 180), anchor="lm")
+
+        # Derecha: min/max grande + viento/humedad + ciudad+hora
+        x_right = 8 * W - 16
+        f_mm = ImageFont.truetype(FONT_PATH, 22)
+        f_lbl = ImageFont.truetype(FONT_PATH, 11)
+        f_det = ImageFont.truetype(FONT_PATH, 14)
+        f_city = ImageFont.truetype(FONT_PATH, 12)
+
+        tmin = clima_info.get("temp_min")
+        tmax = clima_info.get("temp_max")
+        if tmin is not None and tmax is not None:
+            mm_txt = f"{int(round(tmin))}° / {int(round(tmax))}°"
+            d.text((x_right, 22), "MIN/MAX", font=f_lbl, fill=(140, 140, 140), anchor="rm")
+            d.text((x_right, 42), mm_txt, font=f_mm, fill=(220, 220, 220), anchor="rm")
+
+        hum = clima_info.get("humedad") or 0
+        vie = clima_info.get("viento") or 0
+        d.text((x_right, 64), f"💧 {int(hum)}%   💨 {int(vie)} km/h",
+               font=f_det, fill=(120, 180, 220), anchor="rm")
+
+        ahora = datetime.datetime.now().strftime("%H:%M")
+        d.text((x_right, 84), f"AREQUIPA · {ahora}",
+               font=f_city, fill=(160, 160, 160), anchor="rm")
+    else:
+        f = ImageFont.truetype(FONT_PATH, 24)
+        d.text((4 * W, H // 2), "Clima · sin datos",
+               font=f, fill=(120, 120, 120), anchor="mm")
+    _trocear_banner_en_imgs(banner, 8, W, H, 8, imgs)
+
+    # === BANDA 2: METEOGRAMA 12h (768×96) ===
+    meteo = Image.new("RGB", (8 * W, H), (10, 10, 10))
+    d = ImageDraw.Draw(meteo)
+    h12 = horas[:12]
+    if len(h12) >= 2:
+        temps = [h["temp"] for h in h12 if h.get("temp") is not None]
+        precs = [(h.get("precip") or 0) for h in h12]
+        if temps:
+            tmin_g = min(temps)
+            tmax_g = max(temps)
+            rango = max(1.0, tmax_g - tmin_g)
+            margen_x = 24
+            graph_w = 8 * W - 2 * margen_x
+            graph_top = 22
+            graph_bot = H - 14
+            graph_h = graph_bot - graph_top
+            n = len(h12)
+
+            def x_de(i): return margen_x + int(i * graph_w / (n - 1))
+            def y_de(t): return graph_bot - int((t - tmin_g) / rango * graph_h)
+
+            # Barras de lluvia (azul translúcido)
+            for i, p in enumerate(precs):
+                if p > 0:
+                    bar_h = int(p / 100 * graph_h * 0.9)
+                    cx = x_de(i)
+                    alpha = max(60, int(p * 2.55))
+                    d.rectangle((cx - 8, graph_bot - bar_h, cx + 8, graph_bot),
+                                fill=(77, 171, 247))
+
+            # Línea de temperatura con gradiente: dibujo segmento a segmento
+            for i in range(n - 1):
+                t0, t1 = h12[i].get("temp"), h12[i + 1].get("temp")
+                if t0 is None or t1 is None: continue
+                col = _temp_color((t0 + t1) / 2)
+                d.line([(x_de(i), y_de(t0)), (x_de(i + 1), y_de(t1))],
+                       fill=col, width=3)
+
+            # Puntos en cada hora
+            for i, h in enumerate(h12):
+                t = h.get("temp")
+                if t is None: continue
+                col = _temp_color(t)
+                cx, cy = x_de(i), y_de(t)
+                d.ellipse((cx - 3, cy - 3, cx + 3, cy + 3), fill=col)
+
+            # Etiquetas de eje: hora cada 3, en parte superior
+            f_hr = ImageFont.truetype(FONT_PATH, 11)
+            for i in range(0, n, 3):
+                d.text((x_de(i), 8), h12[i]["hora"][:2] + "h",
+                       font=f_hr, fill=(140, 140, 140), anchor="mm")
+            # Etiquetas min/max temp en eje izquierdo
+            f_t = ImageFont.truetype(FONT_PATH, 11)
+            d.text((4, graph_top), f"{int(round(tmax_g))}°",
+                   font=f_t, fill=(180, 180, 180), anchor="lm")
+            d.text((4, graph_bot), f"{int(round(tmin_g))}°",
+                   font=f_t, fill=(180, 180, 180), anchor="lm")
+    else:
+        f = ImageFont.truetype(FONT_PATH, 14)
+        d.text((4 * W, H // 2), "meteograma sin datos",
+               font=f, fill=(100, 100, 100), anchor="mm")
+    _trocear_banner_en_imgs(meteo, 16, W, H, 8, imgs)
+
+    # === BANDA 3: Strip horario 12h, paso 2h (8 tiles) ===
+    paso = 2
+    for i in range(8):
+        h_idx = i * paso
+        tecla = 24 + i
+        if h_idx >= len(horas):
+            imgs[tecla] = _nuevo_lienzo(tam)
+            continue
+        h = horas[h_idx]
+        tile = Image.new("RGBA", tam, (10, 10, 10, 255))
+        td = ImageDraw.Draw(tile)
+        f_hr = ImageFont.truetype(FONT_PATH, 13)
+        td.text((W // 2, 12), h["hora"][:2] + "h",
+                font=f_hr, fill=(170, 170, 170), anchor="mm")
+        t = h.get("temp")
+        if t is not None:
+            f_t = ImageFont.truetype(FONT_PATH, 26)
+            td.text((W // 2, 38), f"{int(round(t))}°",
+                    font=f_t, fill=_temp_color(t), anchor="mm")
+        ico = _icono_clima_pil(h.get("code"), 30)
+        if ico is not None:
+            tile.paste(ico, ((W - 30) // 2, 56), ico)
+        # Prob lluvia solo si > 40%
+        p = h.get("precip") or 0
+        if p > 40:
+            f_p = ImageFont.truetype(FONT_PATH, 11)
+            td.text((W - 4, H - 4), f"{int(p)}%",
+                    font=f_p, fill=(77, 171, 247), anchor="rb")
+        imgs[tecla] = tile
+    return imgs
+
+
+def render_pagina_docker(deck, tam):
+    """Lista hasta 24 containers en filas 1-3, 8 cols. Tap → start/stop."""
+    imgs = dict(botones_navegacion(deck, tam))
+    containers = docker_info["containers"][:24]  # 32 - 8 nav = 24 max
+    for i, (name, running, _img) in enumerate(containers):
+        tecla = 8 + i  # 8..31
+        color = "#33dd66" if running else "#888888"
+        # Acortar nombre a 10 chars max para que entre
+        label = (name[:10] + "…") if len(name) > 11 else name
+        sub = "ON" if running else "off"
+        imgs[tecla] = dibujar_panel_metrica(deck, tam, label, sub, color)
+    return imgs
+
+
 def render_pagina_banner(deck, tam):
     """Pantalla idle: imagen full-deck (cols*W × rows*H) con reloj grande,
     fecha, CPU%/RAM% y estado AWA. Se trocea en 32 tiles RGBA para set_key_image."""
@@ -1673,6 +2177,10 @@ def render_pagina_config(deck, tam):
                                    "OFF" if wallpaper_idx == 0
                                    else f"{wallpaper_idx}/{wallpaper_total()}",
                                    "#666666" if wallpaper_idx == 0 else "#ff66cc"),
+        # Col 5 — Banner idle ON/OFF (toggle)
+        13: dibujar_panel_metrica(deck, tam, "Banner",
+                                   "ON" if banner_enabled else "OFF",
+                                   "#ffaa66" if banner_enabled else "#666666"),
         # Col 7 fila 1 — perfil Kiosko (justo debajo del gear CONF)
         15: dibujar_panel_metrica(deck, tam, "Perfil", "Kiosko", "#00ddff"),
         # Cols 3-6 (rows 1-3) libres para futuras configuraciones
@@ -1699,6 +2207,9 @@ def iniciar_dashboard():
     deck.set_key_callback(boton_presionado)
     threading.Thread(target=tareas_red_fondo, daemon=True).start()
     threading.Thread(target=tareas_api_fondo, daemon=True).start()
+    threading.Thread(target=tareas_docker_fondo, daemon=True).start()
+    threading.Thread(target=tareas_clima_fondo, daemon=True).start()
+    threading.Thread(target=tareas_pomodoro_fondo, daemon=True).start()
     last_net = psutil.net_io_counters()
     pagina_anterior = None
 
@@ -1713,11 +2224,11 @@ def iniciar_dashboard():
                 except Exception: pass
                 _despertar = False
 
-            # Fallback a IDLE/BANNER (9) si lleva mucho rato sin interacción.
+            # Fallback por inactividad: a banner si activado, si no a SIS.
             # Excluyo WEB(6) y KEYS(7) — uso prolongado — y banner (9) consigo mismo.
             if (pagina_actual not in (6, 7, 9)
                     and (ahora - ultimo_toque) > tiempo_fallback):
-                pagina_actual = 9
+                pagina_actual = 9 if banner_enabled else 1
                 forzar_redraw = True
 
             # Auto-dim por inactividad
@@ -1749,6 +2260,10 @@ def iniciar_dashboard():
                     imgs = render_pagina_vent(deck, tam)
                 elif pagina_actual == 9:
                     imgs = render_pagina_banner(deck, tam)
+                elif pagina_actual == 10:
+                    imgs = render_pagina_docker(deck, tam)
+                elif pagina_actual == 11:
+                    imgs = render_pagina_clima(deck, tam)
                 else:
                     imgs = render_pagina_config(deck, tam)
                 last_net = cur_net
