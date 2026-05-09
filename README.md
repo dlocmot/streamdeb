@@ -38,12 +38,22 @@ Fila 0 (visible en todas las páginas):
 #### Página SIS (default)
 
 ```
-Fila 1:  Uptime  CPU T   C1   C2   C3   C4   RO123    .
-Fila 2:  RAM     SWAP    DISK  .    .    .    .       .
-Fila 3:  DOWN    UP      Pub.  Local Gw  1.1.1.1 8.8.8.8 .
+Fila 1:  Uptime  CPU T   Cores  POMO    .    .    .    .
+Fila 2:  RAM     SWAP    ROOT   Clima   .    .    .    .
+Fila 3:  DOWN    UP      Pings  Docker  .    .    .    .
 ```
 
-- `RO123` (tecla 14): tipea password de root vía `pynput`.
+- **Cores** (tecla 10): 4 barras verticales (1 por core). Tap → subpágina
+  CORES (id 13) con detalle C1-C4, CPU total, top 5 procesos por CPU y
+  top 5 por memoria (en GB).
+- **Pings** (tecla 26): 3 barras GW/CF/G coloreadas por latencia relativa.
+  Tap → subpágina PINGS (id 14) con detalle por target (actual / avg /
+  max·min) + IPs pública y local.
+- **Clima** (tecla 19): icono WMO + temp actual + min/max. Tap → página
+  CLIMA (id 11) con banner + meteograma 24h + strip 12h.
+- **POMO** (tecla 11): pomodoro 25/5. Tap corto avanza estado, long-press
+  ≥2s resetea.
+- **Docker** (tecla 27): running/total. Tap → página DOCKER (id 10).
 
 #### Página AWA
 
