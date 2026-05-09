@@ -369,8 +369,8 @@ def _accion_boton(deck, tecla):
         return
 
     if pagina_actual == 1:
-        # Tecla 27 SIS: abre página DOCKER (id 10)
-        if tecla == 27:
+        # Tecla 26 SIS: abre página DOCKER (id 10)
+        if tecla == 26:
             if pagina_actual != 10:
                 pagina_actual = 10
                 forzar_redraw = True
@@ -384,10 +384,15 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 13:
                 pagina_actual = 13
                 forzar_redraw = True
-        # Tecla 26 SIS (Pings consolidados): abre página PINGS detalle (id 14)
-        elif tecla == 26:
+        # Tecla 25 SIS (Pings consolidados): abre página PINGS detalle (id 14)
+        elif tecla == 25:
             if pagina_actual != 14:
                 pagina_actual = 14
+                forzar_redraw = True
+        # Tecla 24 SIS (Net consolidado): abre página NET detalle (id 15)
+        elif tecla == 24:
+            if pagina_actual != 15:
+                pagina_actual = 15
                 forzar_redraw = True
         return
 
@@ -799,6 +804,9 @@ def render_pagina_pings(deck, tam):
         net_info, ping_history, _ping_pct_relativo,
     )
 
+def render_pagina_net(deck, tam):
+    return plugin_sistema.render_pagina_net(deck, tam, botones_navegacion(deck, tam))
+
 
 def render_pagina_banner(deck, tam):
     return plugin_banner.render_pagina_banner(deck, tam, DECK_COLS, DECK_ROWS, api_info)
@@ -834,6 +842,7 @@ PAGINAS_RENDER = {
     12: render_pagina_contexto,
     13: render_pagina_cores,
     14: render_pagina_pings,
+    15: render_pagina_net,
 }
 
 

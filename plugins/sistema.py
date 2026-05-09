@@ -53,6 +53,61 @@ def tareas_fondo():
         time.sleep(3)
 
 
+_net_last = {"sample": None, "ts": 0.0}
+
+
+def render_pagina_net(deck, tam, nav_imgs):
+    """Página NET (id 15): detalle throughput red — actual / max / totales."""
+    global max_visto_down, max_visto_up
+    cur = psutil.net_io_counters()
+    now = time.time()
+    prev = _net_last["sample"]
+    prev_t = _net_last["ts"]
+    _net_last["sample"] = cur
+    _net_last["ts"] = now
+
+    dn_kbps = up_kbps = 0.0
+    if prev is not None and now > prev_t:
+        dt = now - prev_t
+        dn_kbps = ((cur.bytes_recv - prev.bytes_recv) * 8) / 1024 / dt
+        up_kbps = ((cur.bytes_sent - prev.bytes_sent) * 8) / 1024 / dt
+    max_visto_down = max(max_visto_down, dn_kbps)
+    max_visto_up   = max(max_visto_up,   up_kbps)
+    f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
+    f_b = lambda v: (f"{v/(1024**3):.1f}G" if v >= 1024**3
+                     else f"{v/(1024**2):.0f}M")
+
+    imgs = dict(nav_imgs)
+    # Fila 1: actuales + max
+    imgs[8]  = dibujar_panel_metrica(deck, tam, "DOWN",  f_r(dn_kbps), "#33ccff",
+                                       pct=(dn_kbps/max_visto_down)*100, sub="kbps")
+    imgs[9]  = dibujar_panel_metrica(deck, tam, "UP",    f_r(up_kbps), "#0066ff",
+                                       pct=(up_kbps/max_visto_up)*100, sub="kbps")
+    imgs[10] = dibujar_panel_metrica(deck, tam, "D max", f_r(max_visto_down), "#3399cc",
+                                       sub="pico")
+    imgs[11] = dibujar_panel_metrica(deck, tam, "U max", f_r(max_visto_up), "#003388",
+                                       sub="pico")
+    # Fila 2: totales acumulados desde boot
+    imgs[16] = dibujar_panel_metrica(deck, tam, "RX",    f_b(cur.bytes_recv), "#33ccff",
+                                       sub="total")
+    imgs[17] = dibujar_panel_metrica(deck, tam, "TX",    f_b(cur.bytes_sent), "#0066ff",
+                                       sub="total")
+    imgs[18] = dibujar_panel_metrica(deck, tam, "Pkts R", f"{cur.packets_recv:,}".replace(",","."),
+                                       "#33ccff")
+    imgs[19] = dibujar_panel_metrica(deck, tam, "Pkts T", f"{cur.packets_sent:,}".replace(",","."),
+                                       "#0066ff")
+    # Fila 3: errores / drops
+    imgs[24] = dibujar_panel_metrica(deck, tam, "Err in",  str(cur.errin),
+                                       "#ff6666" if cur.errin else "#33ff33")
+    imgs[25] = dibujar_panel_metrica(deck, tam, "Err out", str(cur.errout),
+                                       "#ff6666" if cur.errout else "#33ff33")
+    imgs[26] = dibujar_panel_metrica(deck, tam, "Drop in",  str(cur.dropin),
+                                       "#ff9933" if cur.dropin else "#33ff33")
+    imgs[27] = dibujar_panel_metrica(deck, tam, "Drop out", str(cur.dropout),
+                                       "#ff9933" if cur.dropout else "#33ff33")
+    return imgs
+
+
 def render_pagina_pings(deck, tam, nav_imgs, net_info, ping_history,
                           ping_pct_relativo_fn):
     """Página PINGS (id 14): detalle por target con actual / avg / max."""
@@ -156,11 +211,11 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
         17: dibujar_panel_metrica(deck, tam, "SWAP", f"{int(swp)}%", obtener_color_rango(swp), pct=swp),
         18: dibujar_panel_metrica(deck, tam, "ROOT", f"{disk.free/(1024**3):.1f}G",
                                     obtener_color_rango(disk.percent), pct=disk.percent),
-        # Fila 3: red
-        24: dibujar_panel_metrica(deck, tam, "DOWN", f_r(dn_kbps), "#33ccff",
-                                    pct=(dn_kbps/max_visto_down)*100),
-        25: dibujar_panel_metrica(deck, tam, "UP",   f_r(up_kbps), "#0066ff",
-                                    pct=(up_kbps/max_visto_up)*100),
+        # Fila 3: red consolidada en tecla 24 (DOWN+UP) → página NET
+        24: dibujar_panel_pings(deck, tam, "Net", [
+            ("D", (dn_kbps/max_visto_down)*100, "#33ccff", f_r(dn_kbps)),
+            ("U", (up_kbps/max_visto_up)*100,   "#0066ff", f_r(up_kbps)),
+        ]),
     })
     # Cores 1..4 consolidados en una tecla con barras verticales
     imgs[10] = dibujar_panel_cores(deck, tam, "Cores", list(cores[:4]), obtener_color_rango)
@@ -173,7 +228,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
             items.append((lb, pct, color, f"{ms:.1f}"))
         else:
             items.append((lb, 0, "#666666", "Err"))
-    imgs[26] = dibujar_panel_pings(deck, tam, "Pings", items)
+    imgs[25] = dibujar_panel_pings(deck, tam, "Pings", items)
 
     # Widgets inyectados por otros plugins (pomodoro, clima, docker)
     if widgets_extras:

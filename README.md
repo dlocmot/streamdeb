@@ -40,20 +40,23 @@ Fila 0 (visible en todas las páginas):
 ```
 Fila 1:  Uptime  CPU T   Cores  POMO    .    .    .    .
 Fila 2:  RAM     SWAP    ROOT   Clima   .    .    .    .
-Fila 3:  DOWN    UP      Pings  Docker  .    .    .    .
+Fila 3:  Net     Pings   Docker  .      .    .    .    .
 ```
 
 - **Cores** (tecla 10): 4 barras verticales (1 por core). Tap → subpágina
   CORES (id 13) con detalle C1-C4, CPU total, top 5 procesos por CPU y
   top 5 por memoria (en GB).
-- **Pings** (tecla 26): 3 barras GW/CF/G coloreadas por latencia relativa.
+- **Net** (tecla 24): 2 barras D/U escaladas al pico observado. Tap →
+  subpágina NET (id 15) con DOWN/UP actual + pico, totales RX/TX,
+  paquetes y errores/drops.
+- **Pings** (tecla 25): 3 barras GW/CF/G coloreadas por latencia relativa.
   Tap → subpágina PINGS (id 14) con detalle por target (actual / avg /
   max·min) + IPs pública y local.
 - **Clima** (tecla 19): icono WMO + temp actual + min/max. Tap → página
   CLIMA (id 11) con banner + meteograma 24h + strip 12h.
 - **POMO** (tecla 11): pomodoro 25/5. Tap corto avanza estado, long-press
   ≥2s resetea.
-- **Docker** (tecla 27): running/total. Tap → página DOCKER (id 10).
+- **Docker** (tecla 26): running/total. Tap → página DOCKER (id 10).
 
 #### Página AWA
 
