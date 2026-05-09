@@ -74,6 +74,7 @@ tiempo_dim       = 1800   # s sin interacción → atenúa el deck
 perfil_visual    = 1      # 1 = con marcos · 2 = sin marco externo
 PERFILES_TOTAL   = 2
 banner_enabled   = False  # Si True, la auto-fallback va a página IDLE/BANNER (9) en vez de SIS
+monitor_brillo   = 100    # % brillo del monitor externo vía xrandr gamma
 
 # --- Persistencia: carga state guardado y override defaults ---
 from core import persistence
@@ -89,6 +90,7 @@ def _persist_save():
         "perfil_visual":   perfil_visual,
         "wallpaper_idx":   wp_get_idx(),
         "banner_enabled":  banner_enabled,
+        "monitor_brillo":  monitor_brillo,
     })
 
 def wp_get_idx():
@@ -98,7 +100,7 @@ def wp_get_idx():
 
 def _persist_load():
     """Aplica el state guardado a los globals al iniciar."""
-    global brillo_actual, tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled
+    global brillo_actual, tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled, monitor_brillo
     saved = persistence.load()
     if not saved:
         return
@@ -107,11 +109,52 @@ def _persist_load():
     tiempo_dim       = int(saved.get("tiempo_dim",      tiempo_dim))
     perfil_visual    = int(saved.get("perfil_visual",   perfil_visual))
     banner_enabled   = bool(saved.get("banner_enabled", banner_enabled))
+    monitor_brillo   = int(saved.get("monitor_brillo",  monitor_brillo))
     # wallpaper_idx se aplica en _abrir_deck (después de wp.set_layout)
     print(f"[STATE] cargado: brillo={brillo_actual} fallback={tiempo_fallback}s "
-          f"dim={tiempo_dim}s perfil={perfil_visual} banner={banner_enabled}", flush=True)
+          f"dim={tiempo_dim}s perfil={perfil_visual} banner={banner_enabled} "
+          f"mon={monitor_brillo}%", flush=True)
 
 _persist_load()
+
+
+# --- Brillo monitor externo (xrandr gamma) ---
+from core.config import MONITOR_OUTPUT, MONITOR_BRILLO_MIN, MONITOR_BRILLO_MAX, MONITOR_BRILLO_PASO
+
+def _detectar_monitor_output():
+    """Devuelve el primer output activo de xrandr, o '' si falla."""
+    if MONITOR_OUTPUT:
+        return MONITOR_OUTPUT
+    try:
+        r = subprocess.run(["xrandr", "--listactivemonitors"],
+                            capture_output=True, text=True, timeout=2,
+                            env=_env_sesion())
+        for line in r.stdout.splitlines():
+            parts = line.strip().split()
+            # "0: +*HDMI-1 3840/1050x1200/330+0+0  HDMI-1"
+            if len(parts) >= 2 and parts[0].rstrip(":").isdigit():
+                return parts[-1]
+    except Exception as e:
+        print(f"[MONITOR] no se pudo detectar output: {e}", flush=True)
+    return ""
+
+_monitor_output = _detectar_monitor_output()
+if _monitor_output:
+    print(f"[MONITOR] output detectado: {_monitor_output}", flush=True)
+
+def _monitor_aplicar():
+    """Aplica monitor_brillo% como xrandr --brightness 0.X al output activo."""
+    if not _monitor_output:
+        return
+    val = max(MONITOR_BRILLO_MIN, min(MONITOR_BRILLO_MAX, monitor_brillo)) / 100.0
+    try:
+        subprocess.run(["xrandr", "--output", _monitor_output, "--brightness", f"{val:.2f}"],
+                        timeout=2, env=_env_sesion(),
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[MONITOR] error aplicando brillo: {e}", flush=True)
+
+_monitor_aplicar()  # aplicar el persistido al arrancar
 
 
 # --- Plugins (refactor etapas 2-3) ---
@@ -127,6 +170,7 @@ from plugins import sistema  as plugin_sistema
 from plugins import pomodoro as plugin_pomo
 from plugins import docker   as plugin_docker
 from plugins import clima    as plugin_clima
+from plugins import contexto as plugin_ctx
 APPS_PAGINA = plugin_apps.APPS_PAGINA
 WEB_PAGINA  = plugin_web.WEB_PAGINA
 KEYS_PAGINA = plugin_keys.KEYS_PAGINA
@@ -150,6 +194,7 @@ PAGINAS_PRESS = {
     7:  plugin_keys.on_press,
     8:  plugin_vent.on_press,
     10: plugin_docker.on_press_dentro_pagina,
+    12: plugin_ctx.on_press,
 }
 
 
@@ -276,11 +321,11 @@ def dibujar_boton_keys_nav(deck, tamaño, activo=False):
 
 def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
-    global tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled
+    global tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled, monitor_brillo
 
     # En banner idle (9), cualquier tecla no-nav despierta a SIS.
     # Las nav (0-7) caen al routing normal de abajo.
-    if pagina_actual == 9 and tecla not in (0, 1, 2, 3, 5, 6, 7):
+    if pagina_actual == 9 and tecla not in (0, 1, 2, 3, 4, 6, 7):
         pagina_actual = 1
         forzar_redraw = True
         return
@@ -306,11 +351,12 @@ def _accion_boton(deck, tecla):
             pagina_actual = 4
             forzar_redraw = True
         return
-    if tecla == 5:
-        if pagina_actual != 6:
-            pagina_actual = 6
+    if tecla == 4:
+        if pagina_actual != 12:
+            pagina_actual = 12
             forzar_redraw = True
         return
+    # tecla 5 nav libre. WEB (page 6) se entra desde CTX en browsers.
     if tecla == 6:
         if pagina_actual != 7:
             pagina_actual = 7
@@ -373,13 +419,16 @@ def _accion_boton(deck, tecla):
             tiempo_dim = max(TIEMPO_DIM_MIN, tiempo_dim - TIEMPO_PASO)
             print(f"[CONFIG] tiempo_dim={tiempo_dim}s", flush=True)
             forzar_redraw = True; _persist_save()
-        # Perfil visual (rota 1 → 2 → … → 1)
+        # Col 3 — Brillo monitor (xrandr gamma)
         elif tecla == 11:
-            perfil_visual = (perfil_visual % PERFILES_TOTAL) + 1
-            _gear_cache.clear(); _app_cache.clear()
-            _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
-            _invalidar_render_cache()
-            print(f"[CONFIG] perfil_visual={perfil_visual}", flush=True)
+            monitor_brillo = min(MONITOR_BRILLO_MAX, monitor_brillo + MONITOR_BRILLO_PASO)
+            _monitor_aplicar()
+            print(f"[CONFIG] monitor_brillo={monitor_brillo}%", flush=True)
+            forzar_redraw = True; _persist_save()
+        elif tecla == 27:
+            monitor_brillo = max(MONITOR_BRILLO_MIN, monitor_brillo - MONITOR_BRILLO_PASO)
+            _monitor_aplicar()
+            print(f"[CONFIG] monitor_brillo={monitor_brillo}%", flush=True)
             forzar_redraw = True; _persist_save()
         # Wallpaper: la rotación / apagado se maneja en boton_presionado
         # vía detección de press corto vs long-press (ver _wallpaper_evento).
@@ -387,6 +436,14 @@ def _accion_boton(deck, tecla):
         elif tecla == 13:
             banner_enabled = not banner_enabled
             print(f"[CONFIG] banner_enabled={banner_enabled}", flush=True)
+            forzar_redraw = True; _persist_save()
+        # Col 6 — Perfil visual (rota 1 → 2 → … → 1)
+        elif tecla == 14:
+            perfil_visual = (perfil_visual % PERFILES_TOTAL) + 1
+            _gear_cache.clear(); _app_cache.clear()
+            _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
+            _invalidar_render_cache()
+            print(f"[CONFIG] perfil_visual={perfil_visual}", flush=True)
             forzar_redraw = True; _persist_save()
         # Perfil Kiosko: pasa este deck (B) a AWA. Lanza awa_kiosk pineado
         # al mismo serial como servicio transient, luego para streamdeb.
@@ -660,11 +717,13 @@ def botones_navegacion(deck, tam):
     p3 = dibujar_boton_nav(deck, tam, "MEDIA", media_vol,
                            color="#cc66ff", activo=(pagina_actual == 3))
     p4 = dibujar_boton_app_nav(deck, tam, activo=(pagina_actual == 4))
-    p_web  = dibujar_boton_web_nav(deck, tam, activo=(pagina_actual == 6))
+    # p_web ya no está en nav row — WEB se entra desde CTX cuando navegás un browser.
     p_keys = dibujar_boton_keys_nav(deck, tam, activo=(pagina_actual == 7))
     p_vent = dibujar_boton_vent_nav(deck, tam, activo=(pagina_actual == 8))
+    p_ctx  = plugin_ctx.dibujar_boton_ctx_nav(deck, tam, activo=(pagina_actual == 12))
     # CONF se entra con long-press ≥2s en SIS (no tiene nav button).
-    return {0: p1, 1: p2, 2: p3, 3: p4, 5: p_web, 6: p_keys, 7: p_vent}
+    # WEB se entra desde CTX cuando hay un browser activo (Firefox/Brave).
+    return {0: p1, 1: p2, 2: p3, 3: p4, 4: p_ctx, 6: p_keys, 7: p_vent}
 
 # Pomodoro / clima viven en plugins/. El plugin pomo necesita un hook
 # para forzar redibujo tras cambio de estado:
@@ -672,6 +731,20 @@ def _pomo_forzar_redraw():
     global forzar_redraw
     forzar_redraw = True
 plugin_pomo.set_forzar_redraw_fn(_pomo_forzar_redraw)
+
+# CTX puede navegar a otras páginas (ej. WEB desde Firefox)
+def _ctx_navigate(page_id):
+    global pagina_actual, forzar_redraw
+    if pagina_actual != page_id:
+        pagina_actual = page_id
+        forzar_redraw = True
+plugin_ctx.set_navigate_fn(_ctx_navigate)
+
+# CTX fuerza redraw cuando cambia la app activa (limpia teclas stale).
+def _ctx_forzar_redraw():
+    global forzar_redraw
+    forzar_redraw = True
+plugin_ctx.set_forzar_redraw_fn(_ctx_forzar_redraw)
 
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets = {}
@@ -711,6 +784,9 @@ def render_pagina_docker(deck, tam):
 def render_pagina_banner(deck, tam):
     return plugin_banner.render_pagina_banner(deck, tam, DECK_COLS, DECK_ROWS, api_info)
 
+def render_pagina_contexto(deck, tam):
+    return plugin_ctx.render_pagina_contexto(deck, tam, botones_navegacion(deck, tam))
+
 def render_pagina_vent(deck, tam):
     return plugin_vent.render_pagina_vent(deck, tam, botones_navegacion(deck, tam))
 
@@ -720,7 +796,7 @@ def render_pagina_config(deck, tam):
         brillo_actual=brillo_actual, tiempo_fallback=tiempo_fallback,
         tiempo_dim=tiempo_dim, perfil_visual=perfil_visual,
         wallpaper_idx=wp.get_idx(), wallpaper_total=wp.total(),
-        banner_enabled=banner_enabled,
+        banner_enabled=banner_enabled, monitor_brillo=monitor_brillo,
     )
 
 
@@ -736,6 +812,7 @@ PAGINAS_RENDER = {
     9:  render_pagina_banner,
     10: render_pagina_docker,
     11: render_pagina_clima,
+    12: render_pagina_contexto,
 }
 
 
@@ -759,10 +836,20 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_docker.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_clima.tareas_fondo,  daemon=True).start()
     threading.Thread(target=plugin_pomo.tareas_fondo,   daemon=True).start()
+    threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
     last_net = psutil.net_io_counters()
     pagina_anterior = None
 
     try:
+        # Hilo background: refresh cada 5s del listado de wallpapers (auto-detect
+        # de archivos nuevos en ~/.cache/streamdeb/wallpapers/ sin restart).
+        def _wp_refresh_loop():
+            while True:
+                try: wp.lista_paths()
+                except Exception: pass
+                time.sleep(5)
+        threading.Thread(target=_wp_refresh_loop, daemon=True).start()
+
         while True:
             ahora = time.time()
 

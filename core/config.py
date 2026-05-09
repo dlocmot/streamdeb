@@ -26,6 +26,11 @@ CICLO_UPTIME           = 14400
 BRILLO_MIN             = 10
 BRILLO_MAX             = 100
 BRILLO_PASO            = 10
+# Brillo monitor externo (xrandr gamma). 10..100 en %, se traduce a 0.1..1.0
+MONITOR_BRILLO_MIN     = 10
+MONITOR_BRILLO_MAX     = 100
+MONITOR_BRILLO_PASO    = 10
+MONITOR_OUTPUT         = os.environ.get("STREAMDEB_MONITOR_OUTPUT", "")  # "" = auto-detect
 TIEMPO_PASO            = 60       # paso de los +/- en CONF (1 min)
 TIEMPO_FALLBACK_MIN    = 60
 TIEMPO_FALLBACK_MAX    = 1800

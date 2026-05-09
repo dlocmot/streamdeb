@@ -15,6 +15,7 @@ _cols, _rows = 8, 4
 # Estado live
 wallpaper_idx     = 0       # 0 = OFF
 _paths            = None
+_paths_mtime      = 0       # mtime del WALLPAPER_DIR la última vez que indexamos
 _cache            = {}      # idx → PIL RGB redimensionado
 _size             = None    # tamaño de tile cacheado
 
@@ -29,10 +30,17 @@ def set_layout(cols, rows):
 
 
 def lista_paths():
-    """[0]=None, [1]=galaxy fija, [2..N]=archivos en WALLPAPER_DIR ordenados."""
-    global _paths
-    if _paths is not None:
+    """[0]=None, [1]=galaxy fija, [2..N]=archivos en WALLPAPER_DIR ordenados.
+    Re-indexa automáticamente si cambió el mtime del directorio (auto-detect
+    de archivos nuevos / borrados / reemplazados, sin restart)."""
+    global _paths, _paths_mtime, _cache
+    try:
+        mtime = os.path.getmtime(WALLPAPER_DIR) if os.path.isdir(WALLPAPER_DIR) else 0
+    except Exception:
+        mtime = 0
+    if _paths is not None and mtime == _paths_mtime:
         return _paths
+    # Cambió: re-indexar y limpiar cache de PILs (por si reemplazaron archivos)
     paths = [None, WALLPAPER_GALAXY]
     if os.path.isdir(WALLPAPER_DIR):
         extras = sorted(
@@ -41,8 +49,18 @@ def lista_paths():
             if n.lower().endswith((".jpg", ".jpeg", ".png"))
         )
         paths.extend(extras)
+    cambio = (_paths is not None)
     _paths = paths
-    print(f"[WALLPAPER] {len(paths)-1} imágenes disponibles (1..{len(paths)-1})", flush=True)
+    _paths_mtime = mtime
+    if cambio:
+        _cache.clear()
+        # Invalidar también bytes nativos cacheados en core.render
+        try:
+            from . import render as _r
+            _r.invalidar()
+        except Exception: pass
+    print(f"[WALLPAPER] {len(paths)-1} imágenes disponibles (1..{len(paths)-1})"
+          f"{' [reindex]' if cambio else ''}", flush=True)
     return paths
 
 
