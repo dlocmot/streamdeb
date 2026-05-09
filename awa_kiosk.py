@@ -41,7 +41,10 @@ from StreamDeck.DeviceManager import DeviceManager
 from StreamDeck.ImageHelpers import PILHelper
 
 # --- CONFIGURACIÓN ---
-FONT_PATH    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+# Comparte FONT_PATH con dashboard_pro (mismo path de DejaVuSans-Bold).
+# El resto se mantiene local porque kiosko tiene su propio entorno (Pi 3, env vars).
+from core.config import FONT_PATH
+from core.helpers import _fmt_tiempo  # pomodoro/api en kiosko reusan formato compacto
 API_HOST     = os.environ.get("STREAMDEB_API_HOST", "http://192.168.18.10")
 API_USER     = os.environ.get("STREAMDEB_API_USER", "Kiosko")
 API_IP       = urlparse(API_HOST).hostname or "192.168.18.10"
@@ -208,13 +211,7 @@ def _fit_font(dibujo, txt, max_width, max_size, min_size=10):
     return ImageFont.truetype(FONT_PATH, min_size)
 
 
-def _fmt_tiempo(segundos):
-    s = max(0, int(segundos))
-    if s >= 3600:
-        h, rem = divmod(s, 3600)
-        return f"{h}'{rem // 60:02d}\""
-    m, sec = divmod(s, 60)
-    return f"{m}'{sec:02d}\""
+# _fmt_tiempo viene de core.helpers (importado arriba)
 
 
 def _ping_pct_relativo(ms):
