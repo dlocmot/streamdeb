@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import math
 import time
 import json
@@ -9,6 +10,7 @@ import subprocess
 import threading
 import socket
 import urllib.request
+from io import BytesIO
 from collections import deque
 from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
@@ -27,6 +29,9 @@ except Exception as e:
 # --- CONFIGURACIÓN ---
 FONT_PATH    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 DECK_SERIAL  = os.environ.get("STREAMDEB_DECK_SERIAL", "").strip()
+DUMMY_MODE   = "--dummy" in sys.argv
+PREVIEW_DIR  = os.environ.get("STREAMDEB_PREVIEW_DIR", "/tmp/streamdeb-preview")
+POLL_HZ      = int(os.environ.get("STREAMDEB_POLL_HZ", "30"))
 CICLO_UPTIME = 14400
 BRILLO_MIN   = 10           # mínimo (no apaga del todo)
 BRILLO_MAX   = 100
@@ -471,6 +476,7 @@ def _nuevo_lienzo(tamaño):
 # Idx 2..30 = ~/.cache/streamdeb/wallpapers/NN_*.{jpg,png} (10 espacio + 10 linux + 9 nature)
 WALLPAPER_DIR    = os.path.expanduser("~/.cache/streamdeb/wallpapers")
 WALLPAPER_GALAXY = os.path.expanduser("~/.cache/streamdeb/wallpaper.jpg")
+# Default para XL; se sobreescribe desde deck.key_layout() en _abrir_deck()
 DECK_COLS, DECK_ROWS = 8, 4
 WALLPAPER_BRILLO     = 0.4      # 1.0 = original · 0.4 = 40% (oscurecido para destaque de botones)
 LONGPRESS_S          = 2.0      # umbral pulsación larga (SIS→CONF, wallpaper→OFF)
@@ -533,10 +539,24 @@ def _wallpaper_tile(tamaño, tecla):
            (col + 1) * tamaño[0], (row + 1) * tamaño[1])
     return full.crop(box).copy()
 
+_finalizar_cache = {}        # (id(pil) | 0, wallpaper_idx, tecla) → bytes JPEG nativos
+_FINALIZAR_CACHE_MAX = 512   # cap defensivo: si crece (PILs dinámicos) se vacía entera
+_last_sent = {}              # tecla → bytes (dedup de USB writes)
+
 def _finalizar(deck, tamaño, imagen_rgba, tecla):
     """Compone PIL RGBA sobre el tile de wallpaper (si está ON) o negro,
-    y devuelve los bytes nativos. Si imagen_rgba es None, devuelve solo
-    el fondo (tile o negro) — útil para teclas vacías."""
+    y devuelve los bytes nativos. Cachea SOLO cuando el caller indica que
+    el PIL es estable (atributo `_streamdeb_stable`) o cuando es None.
+    Cachear por id() de un PIL transitorio es inseguro: Python reusa ids
+    de objetos liberados, devolviendo bytes obsoletos de otras páginas."""
+    es_estable = imagen_rgba is None or getattr(imagen_rgba, "_streamdeb_stable", False)
+    cache_key = None
+    if es_estable:
+        cache_key = (id(imagen_rgba) if imagen_rgba is not None else 0,
+                     wallpaper_idx, tecla)
+        nb = _finalizar_cache.get(cache_key)
+        if nb is not None:
+            return nb
     if wallpaper_idx > 0:
         tile = _wallpaper_tile(tamaño, tecla)
         fondo = tile if tile is not None else Image.new("RGB", tamaño, "black")
@@ -544,7 +564,24 @@ def _finalizar(deck, tamaño, imagen_rgba, tecla):
         fondo = Image.new("RGB", tamaño, "black")
     if imagen_rgba is not None:
         fondo.paste(imagen_rgba, (0, 0), imagen_rgba)
-    return PILHelper.to_native_format(deck, fondo)
+    nb = PILHelper.to_native_format(deck, fondo)
+    if cache_key is not None:
+        if len(_finalizar_cache) >= _FINALIZAR_CACHE_MAX:
+            _finalizar_cache.clear()
+        _finalizar_cache[cache_key] = nb
+    return nb
+
+def _push_key(deck, tecla, nb):
+    """Envía al deck solo si los bytes cambiaron — evita USB writes redundantes."""
+    if _last_sent.get(tecla) == nb:
+        return
+    deck.set_key_image(tecla, nb)
+    _last_sent[tecla] = nb
+
+def _invalidar_render_cache():
+    """Limpia caches cuando cambia el contexto global (perfil, wallpaper, reconexión)."""
+    _finalizar_cache.clear()
+    _last_sent.clear()
 
 def obtener_color_rango(valor):
     if valor < 30: return "#33ff33"
@@ -860,6 +897,7 @@ def _dibujar_btn_icono_nav(deck, tamaño, paths, color, titulo, activo, cache):
         iy = zone_top + (zone_h - icono.height) // 2
         imagen.paste(icono, (ix, iy), icono)
     out = imagen
+    out._streamdeb_stable = True  # PIL retenido por 'cache': id() permanece válido
     cache[cache_key] = out
     return out
 
@@ -997,6 +1035,13 @@ def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
     global tiempo_fallback, tiempo_dim, perfil_visual
 
+    # En banner idle (9), cualquier tecla no-nav despierta a SIS.
+    # Las nav (0-7) caen al routing normal de abajo.
+    if pagina_actual == 9 and tecla not in (0, 1, 2, 3, 5, 6, 7):
+        pagina_actual = 1
+        forzar_redraw = True
+        return
+
     # Navegación entre páginas (siempre activa)
     if tecla == 0:
         if pagina_actual != 1:
@@ -1128,6 +1173,7 @@ def _accion_boton(deck, tecla):
             perfil_visual = (perfil_visual % PERFILES_TOTAL) + 1
             _gear_cache.clear(); _app_cache.clear()
             _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
+            _invalidar_render_cache()
             print(f"[CONFIG] perfil_visual={perfil_visual}", flush=True)
             forzar_redraw = True
         # Wallpaper: la rotación / apagado se maneja en boton_presionado
@@ -1185,6 +1231,7 @@ def _wallpaper_evento(held):
         # 0→1, 1→2, …, total→1 (no vuelve a OFF por pulsación corta)
         wallpaper_idx = (wallpaper_idx % total) + 1
         print(f"[WALLPAPER] idx={wallpaper_idx}/{total}", flush=True)
+    _invalidar_render_cache()
     forzar_redraw = True
 
 def _sis_evento(held):
@@ -1235,7 +1282,84 @@ def boton_presionado(deck, tecla, estado):
 
 # --- Inicialización ---
 
+class DummyDeck:
+    """Mock de StreamDeck XL para iteración visual sin hardware.
+    Decodifica los bytes JPEG de cada tecla y los compone en un mosaico
+    PNG (8x4) en PREVIEW_DIR/deck.png. Activado con `--dummy`."""
+    KEY_COUNT = 32
+    KEY_COLS  = 8
+    KEY_ROWS  = 4
+    KEY_W, KEY_H = 96, 96
+
+    def __init__(self):
+        self._keys = {}
+        self._dirty = False
+        self._depth = 0
+        self._serial = "DUMMY-" + str(os.getpid())
+        os.makedirs(PREVIEW_DIR, exist_ok=True)
+        print(f"[DUMMY] preview dir: {PREVIEW_DIR}", flush=True)
+
+    # API mínima usada por dashboard_pro
+    def open(self): pass
+    def close(self): pass
+    def reset(self): self._keys.clear(); self._save_mosaic()
+    def is_open(self): return True
+    def is_visual(self): return True
+    def is_touch(self): return False
+    def connected(self): return True
+    def key_count(self): return self.KEY_COUNT
+    def key_image_format(self):
+        return {"size": (self.KEY_W, self.KEY_H), "format": "JPEG",
+                "rotation": 0, "flip": (False, False)}
+    def key_layout(self): return (self.KEY_ROWS, self.KEY_COLS)
+    def get_serial_number(self): return self._serial
+    def get_firmware_version(self): return "DUMMY 1.0"
+    def set_brightness(self, n): pass
+    def set_poll_frequency(self, hz): pass
+    def set_key_callback(self, cb): pass
+    def set_key_image(self, k, native_bytes):
+        self._keys[k] = native_bytes
+        if self._depth == 0:
+            self._save_mosaic()
+        else:
+            self._dirty = True
+
+    # `with deck:` agrupa writes; salvamos el mosaico una sola vez por bloque
+    def __enter__(self):
+        self._depth += 1
+        return self
+    def __exit__(self, *a):
+        self._depth = max(0, self._depth - 1)
+        if self._depth == 0 and self._dirty:
+            self._save_mosaic()
+            self._dirty = False
+
+    def _save_mosaic(self):
+        try:
+            mosaic = Image.new("RGB",
+                               (self.KEY_W * self.KEY_COLS, self.KEY_H * self.KEY_ROWS),
+                               "black")
+            for k, b in self._keys.items():
+                if not b:
+                    continue
+                try:
+                    img = Image.open(BytesIO(b)).convert("RGB")
+                    if img.size != (self.KEY_W, self.KEY_H):
+                        img = img.resize((self.KEY_W, self.KEY_H), Image.LANCZOS)
+                    row, col = k // self.KEY_COLS, k % self.KEY_COLS
+                    mosaic.paste(img, (col * self.KEY_W, row * self.KEY_H))
+                except Exception:
+                    pass
+            mosaic.save(os.path.join(PREVIEW_DIR, "deck.png"))
+        except Exception as e:
+            print(f"[DUMMY] mosaic error: {e}", flush=True)
+
+
 def _abrir_deck():
+    if DUMMY_MODE:
+        d = DummyDeck()
+        d.set_brightness(brillo_actual)
+        return d
     try:
         decks = DeviceManager().enumerate()
         if not decks:
@@ -1263,6 +1387,21 @@ def _abrir_deck():
         time.sleep(0.3)
         d.reset()
         d.set_brightness(brillo_actual)
+        try:
+            d.set_poll_frequency(POLL_HZ)
+        except Exception as e:
+            print(f"[WARN] set_poll_frequency({POLL_HZ}): {e}", flush=True)
+        # Introspección: usar layout del deck en vez de hardcode 8x4
+        try:
+            global DECK_COLS, DECK_ROWS
+            rows, cols = d.key_layout()
+            if (rows, cols) != (DECK_ROWS, DECK_COLS):
+                _invalidar_render_cache()
+            DECK_ROWS, DECK_COLS = rows, cols
+            visual = "visual" if d.is_visual() else "no-visual"
+            print(f"[DECK] layout={cols}x{rows} {visual} firmware={d.get_firmware_version()} poll={POLL_HZ}Hz", flush=True)
+        except Exception as e:
+            print(f"[WARN] introspección: {e}", flush=True)
         return d
     except Exception as e:
         print(f"[WARN] _abrir_deck: {e}", flush=True)
@@ -1446,6 +1585,55 @@ def render_pagina_keys(deck, tam):
         imgs[tecla] = dibujar_lanzador_web(deck, tam, label, "#ffcc33", path)
     return imgs
 
+def render_pagina_banner(deck, tam):
+    """Pantalla idle: imagen full-deck (cols*W × rows*H) con reloj grande,
+    fecha, CPU%/RAM% y estado AWA. Se trocea en 32 tiles RGBA para set_key_image."""
+    W, H = tam
+    full = Image.new("RGB", (DECK_COLS * W, DECK_ROWS * H), "black")
+    d = ImageDraw.Draw(full)
+
+    ahora = datetime.datetime.now()
+    hora = ahora.strftime("%H:%M")
+    fecha = ahora.strftime("%a %d %b %Y").upper()
+
+    cw, ch = full.size
+    # Reloj grande
+    fclock = ImageFont.truetype(FONT_PATH, int(H * 1.9))
+    d.text((cw // 2, int(ch * 0.42)), hora, font=fclock, fill="#ffffff", anchor="mm")
+    # Fecha bajo el reloj
+    ffecha = ImageFont.truetype(FONT_PATH, int(H * 0.42))
+    d.text((cw // 2, int(ch * 0.78)), fecha, font=ffecha, fill="#888888", anchor="mm")
+
+    # Stats inferior izquierda
+    cpu = int(psutil.cpu_percent())
+    ram = int(psutil.virtual_memory().percent)
+    fstats = ImageFont.truetype(FONT_PATH, int(H * 0.30))
+    d.text((W // 2, ch - int(H * 0.35)),
+           f"CPU {cpu}%   RAM {ram}%",
+           font=fstats, fill="#33ccff", anchor="lm")
+
+    # Estado AWA inferior derecha
+    if api_info.get("online"):
+        awa_txt = api_info["estado"].upper()
+        awa_col = "#33ff33" if api_info["estado"] == "Abierta" else "#ff3333"
+    else:
+        awa_txt = "AWA OFFLINE"
+        awa_col = "#666666"
+    d.text((cw - W // 2, ch - int(H * 0.35)),
+           awa_txt, font=fstats, fill=awa_col, anchor="rm")
+
+    # Marca arriba a la derecha (toca cualquier tecla)
+    fhint = ImageFont.truetype(FONT_PATH, int(H * 0.20))
+    d.text((cw - 12, int(H * 0.30)), "tap any key", font=fhint, fill="#444444", anchor="rm")
+
+    # Trocear en tiles
+    imgs = {}
+    for k in range(DECK_COLS * DECK_ROWS):
+        row, col = k // DECK_COLS, k % DECK_COLS
+        tile = full.crop((col * W, row * H, (col + 1) * W, (row + 1) * H)).convert("RGBA")
+        imgs[k] = tile
+    return imgs
+
 def render_pagina_vent(deck, tam):
     imgs = dict(botones_navegacion(deck, tam))
     for tecla, (label, x_ini, x_fin, y_ini, y_fin, _geom) in VENT_PAGINA.items():
@@ -1525,11 +1713,11 @@ def iniciar_dashboard():
                 except Exception: pass
                 _despertar = False
 
-            # Fallback a SIS si lleva mucho rato en otra página sin interacción.
-            # Excluyo WEB(6) y KEYS(7) — son páginas de uso prolongado.
-            if (pagina_actual not in (1, 6, 7)
+            # Fallback a IDLE/BANNER (9) si lleva mucho rato sin interacción.
+            # Excluyo WEB(6) y KEYS(7) — uso prolongado — y banner (9) consigo mismo.
+            if (pagina_actual not in (6, 7, 9)
                     and (ahora - ultimo_toque) > tiempo_fallback):
-                pagina_actual = 1
+                pagina_actual = 9
                 forzar_redraw = True
 
             # Auto-dim por inactividad
@@ -1559,19 +1747,29 @@ def iniciar_dashboard():
                     imgs = render_pagina_keys(deck, tam)
                 elif pagina_actual == 8:
                     imgs = render_pagina_vent(deck, tam)
+                elif pagina_actual == 9:
+                    imgs = render_pagina_banner(deck, tam)
                 else:
                     imgs = render_pagina_config(deck, tam)
                 last_net = cur_net
 
-                if pagina_actual != pagina_anterior or forzar_redraw:
-                    for k in range(deck.key_count()):
-                        if k not in imgs:
-                            deck.set_key_image(k, _finalizar(deck, tam, None, k))
-                    pagina_anterior = pagina_actual
-                    forzar_redraw = False
+                # `with deck:` agrupa writes en un bloque atómico (lock interno
+                # de la librería) — más robusto frente a reconexión USB y
+                # señaliza al DummyDeck cuándo redibujar el mosaico.
+                with deck:
+                    if pagina_actual != pagina_anterior or forzar_redraw:
+                        if pagina_actual != pagina_anterior:
+                            # Cambio de página: descarta el dedup (mismo tecla
+                            # con contenido distinto fuerza redraw real).
+                            _last_sent.clear()
+                        for k in range(deck.key_count()):
+                            if k not in imgs:
+                                _push_key(deck, k, _finalizar(deck, tam, None, k))
+                        pagina_anterior = pagina_actual
+                        forzar_redraw = False
 
-                for key, img in imgs.items():
-                    deck.set_key_image(key, _finalizar(deck, tam, img, key))
+                    for key, img in imgs.items():
+                        _push_key(deck, key, _finalizar(deck, tam, img, key))
 
             except Exception as e:
                 print(f"[ERR] {e} — intentando reconectar...", flush=True)
@@ -1587,6 +1785,7 @@ def iniciar_dashboard():
                 tam = deck.key_image_format()['size']
                 deck.set_key_callback(boton_presionado)
                 pagina_anterior = None
+                _invalidar_render_cache()
                 print("[OK] reconectado", flush=True)
 
             time.sleep(1)
