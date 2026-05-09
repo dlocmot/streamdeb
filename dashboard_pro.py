@@ -374,10 +374,20 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 10:
                 pagina_actual = 10
                 forzar_redraw = True
-        # Teclas 20-23 SIS (panel clima): abre página CLIMA (id 11)
-        elif tecla in (20, 21, 22, 23):
+        # Tecla 20 SIS (Clima consolidado): abre página CLIMA (id 11)
+        elif tecla == 20:
             if pagina_actual != 11:
                 pagina_actual = 11
+                forzar_redraw = True
+        # Tecla 10 SIS (Cores consolidados): abre página CORES detalle (id 13)
+        elif tecla == 10:
+            if pagina_actual != 13:
+                pagina_actual = 13
+                forzar_redraw = True
+        # Tecla 26 SIS (Pings consolidados): abre página PINGS detalle (id 14)
+        elif tecla == 26:
+            if pagina_actual != 14:
+                pagina_actual = 14
                 forzar_redraw = True
         return
 
@@ -780,6 +790,15 @@ def render_pagina_clima(deck, tam):
 def render_pagina_docker(deck, tam):
     return plugin_docker.render_pagina_docker(deck, tam, botones_navegacion(deck, tam))
 
+def render_pagina_cores(deck, tam):
+    return plugin_sistema.render_pagina_cores(deck, tam, botones_navegacion(deck, tam))
+
+def render_pagina_pings(deck, tam):
+    return plugin_sistema.render_pagina_pings(
+        deck, tam, botones_navegacion(deck, tam),
+        net_info, ping_history, _ping_pct_relativo,
+    )
+
 
 def render_pagina_banner(deck, tam):
     return plugin_banner.render_pagina_banner(deck, tam, DECK_COLS, DECK_ROWS, api_info)
@@ -813,6 +832,8 @@ PAGINAS_RENDER = {
     10: render_pagina_docker,
     11: render_pagina_clima,
     12: render_pagina_contexto,
+    13: render_pagina_cores,
+    14: render_pagina_pings,
 }
 
 
@@ -837,6 +858,7 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_clima.tareas_fondo,  daemon=True).start()
     threading.Thread(target=plugin_pomo.tareas_fondo,   daemon=True).start()
     threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
+    threading.Thread(target=plugin_sistema.tareas_fondo, daemon=True).start()
     last_net = psutil.net_io_counters()
     pagina_anterior = None
 

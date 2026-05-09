@@ -71,6 +71,73 @@ def dibujar_panel_metrica(deck, tamaño, titulo, valor, color,
     return imagen
 
 
+def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn):
+    """Panel con header + N barras verticales (una por core), color por %."""
+    imagen = _nuevo_lienzo(tamaño)
+    dibujo = ImageDraw.Draw(imagen)
+    rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
+    frame_color = color_fn(max(valores) if valores else 0)
+    if _con_marco_fn():
+        dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
+    f_tit = ImageFont.truetype(FONT_PATH, 13)
+    dibujo.text((tamaño[0]//2, 15), titulo, font=f_tit, fill=frame_color, anchor="mm")
+    dibujo.line((10, 27, tamaño[0]-11, 27), fill=frame_color, width=1)
+
+    n = len(valores) or 1
+    pad_x = 10
+    gap = 4
+    zone_top, zone_bot = 34, tamaño[1] - 10
+    bar_zone_h = zone_bot - zone_top
+    bar_w = (tamaño[0] - 2*pad_x - gap*(n-1)) // n
+    f_lbl = ImageFont.truetype(FONT_PATH, 9)
+    for i, v in enumerate(valores):
+        x = pad_x + i*(bar_w + gap)
+        c = color_fn(v)
+        dibujo.rectangle((x, zone_top, x+bar_w, zone_bot), outline="#333333", fill="#111111")
+        p = max(0, min(100, v))
+        fill_h = int(bar_zone_h * (p/100))
+        if fill_h > 0:
+            dibujo.rectangle((x, zone_bot - fill_h, x+bar_w, zone_bot), fill=c)
+        dibujo.text((x + bar_w//2, tamaño[1]-5), str(i+1), font=f_lbl, fill="#888888", anchor="mm")
+    return imagen
+
+
+def dibujar_panel_pings(deck, tamaño, titulo, items):
+    """Panel header + N barras verticales para latencias.
+    items: lista [(label_corto, pct, color, ms_str), ...]. ms_str se dibuja
+    abajo de cada barra."""
+    imagen = _nuevo_lienzo(tamaño)
+    dibujo = ImageDraw.Draw(imagen)
+    rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
+    # Color del marco: peor (más alto pct) entre los items.
+    worst_color = "#33ff33"
+    if items:
+        worst = max(items, key=lambda x: x[1])
+        worst_color = worst[2]
+    if _con_marco_fn():
+        dibujo.rounded_rectangle(rect, radius=10, outline=worst_color, width=2)
+    f_tit = ImageFont.truetype(FONT_PATH, 13)
+    dibujo.text((tamaño[0]//2, 15), titulo, font=f_tit, fill=worst_color, anchor="mm")
+    dibujo.line((10, 27, tamaño[0]-11, 27), fill=worst_color, width=1)
+
+    n = len(items) or 1
+    pad_x = 8
+    gap = 4
+    zone_top, zone_bot = 32, tamaño[1] - 16
+    bar_zone_h = zone_bot - zone_top
+    bar_w = (tamaño[0] - 2*pad_x - gap*(n-1)) // n
+    f_lbl = ImageFont.truetype(FONT_PATH, 9)
+    for i, (lbl, pct, color, _ms) in enumerate(items):
+        x = pad_x + i*(bar_w + gap)
+        dibujo.rectangle((x, zone_top, x+bar_w, zone_bot), outline="#333333", fill="#111111")
+        p = max(0, min(100, pct))
+        fill_h = int(bar_zone_h * (p/100))
+        if fill_h > 0:
+            dibujo.rectangle((x, zone_bot - fill_h, x+bar_w, zone_bot), fill=color)
+        dibujo.text((x + bar_w//2, tamaño[1]-7), lbl, font=f_lbl, fill="#aaaaaa", anchor="mm")
+    return imagen
+
+
 def dibujar_panel_info(deck, tamaño, titulo, valor, frame_color, valor_color="#ffffff"):
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)

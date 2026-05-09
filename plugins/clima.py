@@ -147,26 +147,21 @@ def _trocear_banner(imagen_full, tecla_base, W, H, cols, imgs):
 # --- Widgets en SIS (4 tiles 20-23) ---
 
 def widget_para_sistema(deck, tam):
+    """Widget consolidado en SIS tecla 20: icono + temp + min/max.
+    Tap abre página CLIMA (id 11) con el detalle completo."""
     imgs = {}
     if clima_info["online"] and clima_info["temp"] is not None:
         ico_name, ico_color = icono_wmo(clima_info["weather_code"])
         ico_path = _iconify_png(ico_name, ico_color, 256)
-        cond_txt = descripcion_wmo(clima_info["weather_code"])
-        imgs[20] = dibujar_lanzador_web(deck, tam, cond_txt, "#" + ico_color, ico_path)
-        imgs[21] = dibujar_panel_metrica(deck, tam, "Temp",
-                                          f"{clima_info['temp']:.0f}°", "#ffaa66")
-        imgs[22] = dibujar_panel_metrica(deck, tam, "Humedad",
-                                          f"{int(clima_info['humedad'] or 0)}%", "#66aadd",
-                                          sub=f"{int(clima_info['viento'] or 0)} km/h")
         tmin = int(round(clima_info['temp_min'] or 0))
         tmax = int(round(clima_info['temp_max'] or 0))
-        imgs[23] = dibujar_panel_metrica(deck, tam, "Min/Max",
-                                          f"{tmin}°/{tmax}°", "#cc66ff")
+        imgs[20] = dibujar_lanzador_web(
+            deck, tam,
+            f"{clima_info['temp']:.0f}° {tmin}/{tmax}",
+            "#" + ico_color, ico_path,
+        )
     else:
         imgs[20] = dibujar_panel_metrica(deck, tam, "Clima", "—", "#666666")
-        imgs[21] = dibujar_panel_metrica(deck, tam, "AQP", "off", "#666666")
-        imgs[22] = dibujar_panel_metrica(deck, tam, "API", "—", "#666666")
-        imgs[23] = dibujar_panel_metrica(deck, tam, "Open-M.", "wait", "#666666")
     return imgs
 
 
