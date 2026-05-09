@@ -157,6 +157,35 @@ WEB_ICON_OVERRIDE = {
 def _kp(*keys):
     return list(keys)
 
+# --- Página VENT (8) — tiling de ventanas vía wmctrl (mismas coords que ~/.xbindkeysrc) ---
+# pynput inyecta eventos sintéticos que xbindkeys ignora (XGrabKey no atrapa XTest),
+# así que llamamos wmctrl directamente.
+# tecla → (label, x_ini, x_fin, y_ini, y_fin, geometría wmctrl "x,y,w,h")
+# Fila 2 (8..12)  = altura completa (h=1168, y=27)
+# Fila 3 (16..20) = mitad superior (h=584,  y=27)
+# Fila 4 (24..28) = mitad inferior (h=584,  y=611)
+VENT_PAGINA = {
+    # Fila 2 — altura completa
+    8:  ("Izq",    0.00, 1/3,  0.0, 1.0, "0,0,27,1276,1168"),
+    9:  ("Centro", 1/3,  2/3,  0.0, 1.0, "0,1282,27,1276,1168"),
+    10: ("Der",    2/3,  1.00, 0.0, 1.0, "0,2564,27,1276,1168"),
+    11: ("M.Izq",  0.00, 0.50, 0.0, 1.0, "0,0,27,1917,1168"),
+    12: ("M.Der",  0.50, 1.00, 0.0, 1.0, "0,1923,27,1917,1168"),
+    # Fila 3 — mitad superior
+    16: ("Izq↑",   0.00, 1/3,  0.0, 0.5, "0,0,27,1276,584"),
+    17: ("Cen↑",   1/3,  2/3,  0.0, 0.5, "0,1282,27,1276,584"),
+    18: ("Der↑",   2/3,  1.00, 0.0, 0.5, "0,2564,27,1276,584"),
+    19: ("MI↑",    0.00, 0.50, 0.0, 0.5, "0,0,27,1917,584"),
+    20: ("MD↑",    0.50, 1.00, 0.0, 0.5, "0,1923,27,1917,584"),
+    # Fila 4 — mitad inferior
+    24: ("Izq↓",   0.00, 1/3,  0.5, 1.0, "0,0,611,1276,584"),
+    25: ("Cen↓",   1/3,  2/3,  0.5, 1.0, "0,1282,611,1276,584"),
+    26: ("Der↓",   2/3,  1.00, 0.5, 1.0, "0,2564,611,1276,584"),
+    27: ("MI↓",    0.00, 0.50, 0.5, 1.0, "0,0,611,1917,584"),
+    28: ("MD↓",    0.50, 1.00, 0.5, 1.0, "0,1923,611,1917,584"),
+}
+
+
 KEYS_PAGINA = {
     # tecla: (label, combo, factory_keys, icono_sistema)
     8:  ("Captura", "Print",         lambda: _kp(Key.print_screen),               "applets-screenshooter"),
@@ -437,53 +466,67 @@ def _nuevo_lienzo(tamaño):
     se compone en _finalizar()."""
     return Image.new("RGBA", tamaño, (0, 0, 0, 0))
 
-# --- Wallpaper (toggle ON/OFF, hardcoded URL) ---
-WALLPAPER_URL  = "https://external-content.duckduckgo.com/iu/?u=http%3A%2F%2Fhdqwalls.com%2Fwallpapers%2F4k-galaxy-space-i9.jpg&f=1&nofb=1&ipt=a34e3f52a05088bb055f2d3454bbf78e0d3d0e6eb504c5fc2881705a4e07e5ce"
-WALLPAPER_PATH = os.path.expanduser("~/.cache/streamdeb/wallpaper.jpg")
+# --- Wallpaper rotativo (0=OFF, 1..30=imágenes) ---
+# Idx 1 = galaxia actual (~/.cache/streamdeb/wallpaper.jpg)
+# Idx 2..30 = ~/.cache/streamdeb/wallpapers/NN_*.{jpg,png} (10 espacio + 10 linux + 9 nature)
+WALLPAPER_DIR    = os.path.expanduser("~/.cache/streamdeb/wallpapers")
+WALLPAPER_GALAXY = os.path.expanduser("~/.cache/streamdeb/wallpaper.jpg")
 DECK_COLS, DECK_ROWS = 8, 4
-WALLPAPER_BRILLO = 0.5      # 1.0 = original · 0.5 = 50%
-wallpaper_on    = False
-_wallpaper_full = None     # PIL RGB redimensionado a (cols*W, rows*H)
-_wallpaper_size = None     # (W, H) por tile cacheado
+WALLPAPER_BRILLO     = 0.4      # 1.0 = original · 0.4 = 40% (oscurecido para destaque de botones)
+LONGPRESS_S          = 2.0      # umbral pulsación larga (SIS→CONF, wallpaper→OFF)
+wallpaper_idx     = 0           # 0 = OFF
+_wallpaper_paths  = None        # lista [None, path1, path2, …, path30]
+_wallpaper_cache  = {}          # idx → PIL RGB redimensionado (cols*W, rows*H)
+_wallpaper_size   = None        # tamaño cacheado; si cambia se invalida cache
 
-def _wallpaper_descargar():
-    if os.path.exists(WALLPAPER_PATH) and os.path.getsize(WALLPAPER_PATH) > 1000:
-        return True
-    try:
-        os.makedirs(os.path.dirname(WALLPAPER_PATH), exist_ok=True)
-        req = urllib.request.Request(WALLPAPER_URL, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = r.read()
-        with open(WALLPAPER_PATH, "wb") as f:
-            f.write(data)
-        return True
-    except Exception as e:
-        print(f"[WALLPAPER] error descarga: {e}", flush=True)
-        return False
+def _wallpaper_lista():
+    """Construye la lista de paths una vez. [0]=None, [1]=galaxy, [2..30]=dir."""
+    global _wallpaper_paths
+    if _wallpaper_paths is not None:
+        return _wallpaper_paths
+    paths = [None, WALLPAPER_GALAXY]
+    if os.path.isdir(WALLPAPER_DIR):
+        extras = sorted(
+            os.path.join(WALLPAPER_DIR, n)
+            for n in os.listdir(WALLPAPER_DIR)
+            if n.lower().endswith((".jpg", ".jpeg", ".png"))
+        )
+        paths.extend(extras)
+    _wallpaper_paths = paths
+    print(f"[WALLPAPER] {len(paths)-1} imágenes disponibles (1..{len(paths)-1})", flush=True)
+    return paths
 
-def _wallpaper_cargar(tamaño):
-    """Asegura que _wallpaper_full está listo y dimensionado a (cols*W, rows*H)."""
-    global _wallpaper_full, _wallpaper_size
-    if _wallpaper_full is not None and _wallpaper_size == tamaño:
-        return _wallpaper_full
-    if not _wallpaper_descargar():
+def wallpaper_total():
+    return max(0, len(_wallpaper_lista()) - 1)
+
+def _wallpaper_cargar(tamaño, idx):
+    """Devuelve PIL RGB de tamaño (cols*W, rows*H) para el idx, cacheado."""
+    global _wallpaper_cache, _wallpaper_size
+    if _wallpaper_size != tamaño:
+        _wallpaper_cache.clear()
+        _wallpaper_size = tamaño
+    if idx in _wallpaper_cache:
+        return _wallpaper_cache[idx]
+    paths = _wallpaper_lista()
+    if idx <= 0 or idx >= len(paths) or not paths[idx] or not os.path.exists(paths[idx]):
         return None
     try:
-        img = Image.open(WALLPAPER_PATH).convert("RGB")
+        img = Image.open(paths[idx]).convert("RGB")
         total = (DECK_COLS * tamaño[0], DECK_ROWS * tamaño[1])
         img = img.resize(total, Image.LANCZOS)
         if WALLPAPER_BRILLO != 1.0:
             img = ImageEnhance.Brightness(img).enhance(WALLPAPER_BRILLO)
-        _wallpaper_full = img
-        _wallpaper_size = tamaño
-        return _wallpaper_full
+        _wallpaper_cache[idx] = img
+        return img
     except Exception as e:
-        print(f"[WALLPAPER] error cargando: {e}", flush=True)
+        print(f"[WALLPAPER] error cargando idx={idx} ({paths[idx]}): {e}", flush=True)
         return None
 
 def _wallpaper_tile(tamaño, tecla):
-    full = _wallpaper_cargar(tamaño)
-    if full is None or tecla is None:
+    if wallpaper_idx <= 0 or tecla is None:
+        return None
+    full = _wallpaper_cargar(tamaño, wallpaper_idx)
+    if full is None:
         return None
     row, col = tecla // DECK_COLS, tecla % DECK_COLS
     box = (col * tamaño[0], row * tamaño[1],
@@ -494,7 +537,7 @@ def _finalizar(deck, tamaño, imagen_rgba, tecla):
     """Compone PIL RGBA sobre el tile de wallpaper (si está ON) o negro,
     y devuelve los bytes nativos. Si imagen_rgba es None, devuelve solo
     el fondo (tile o negro) — útil para teclas vacías."""
-    if wallpaper_on:
+    if wallpaper_idx > 0:
         tile = _wallpaper_tile(tamaño, tecla)
         fondo = tile if tile is not None else Image.new("RGB", tamaño, "black")
     else:
@@ -753,6 +796,7 @@ _gear_cache = {}
 _app_cache = {}
 _web_cache = {}
 _keys_cache = {}
+_vent_cache = {}
 GEAR_ICON_PATHS = (
     "/usr/share/icons/gnome/256x256/categories/preferences-system.png",
     "/usr/share/icons/mate/256x256/categories/preferences-system.png",
@@ -769,6 +813,15 @@ KEYS_NAV_ICON_PATHS = (
     "/usr/share/icons/gnome/256x256/apps/preferences-desktop-keyboard-shortcuts.png",
     "/usr/share/icons/gnome/256x256/apps/preferences-desktop-keyboard.png",
 )
+def _vent_nav_paths():
+    """Icono para el botón VENT: 3 columnas verticales (mdi:view-column)
+    representan los tercios de tiling. Descarga vía iconify una vez."""
+    p = _iconify_png("mdi:view-quilt", "66ddff", 256)
+    fallbacks = (
+        "/usr/share/icons/ContrastHigh/256x256/actions/view-grid.png",
+        "/usr/share/icons/hicolor/256x256/apps/mate-panel-window-list.png",
+    )
+    return tuple(x for x in (p, *fallbacks) if x)
 
 def _dibujar_btn_icono_nav(deck, tamaño, paths, color, titulo, activo, cache):
     """Botón de navegación con header (título + separador) e icono colorido en la
@@ -891,6 +944,34 @@ def dibujar_boton_web_nav(deck, tamaño, activo=False):
 def dibujar_boton_keys_nav(deck, tamaño, activo=False):
     return _dibujar_btn_icono_nav(deck, tamaño, KEYS_NAV_ICON_PATHS, "#ffcc33", "KEYS", activo, _keys_cache)
 
+def dibujar_boton_vent_nav(deck, tamaño, activo=False):
+    return _dibujar_btn_icono_nav(deck, tamaño, _vent_nav_paths(), "#66ddff", "VENT", activo, _vent_cache)
+
+def dibujar_vent_preview(deck, tamaño, label, x_ini, x_fin, y_ini, y_fin, color):
+    """Botón con preview gráfico: marco redondeado + título + 'pantalla'
+    en miniatura con la región objetivo (x_ini..x_fin, y_ini..y_fin) resaltada."""
+    imagen = _nuevo_lienzo(tamaño)
+    dibujo = ImageDraw.Draw(imagen)
+    rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
+    if _con_marco():
+        dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
+    f_tit = ImageFont.truetype(FONT_PATH, 13)
+    dibujo.text((tamaño[0]//2, 15), label, font=f_tit, fill=color, anchor="mm")
+    dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
+    # Pantalla en miniatura (zona inferior)
+    pad_x, pad_top, pad_bot = 14, 36, 14
+    sx, sy = pad_x, pad_top
+    ex, ey = tamaño[0] - pad_x - 1, tamaño[1] - pad_bot - 1
+    dibujo.rectangle((sx, sy, ex, ey), outline="#666666", width=1)
+    w, h = ex - sx, ey - sy
+    rx1 = sx + int(round(w * x_ini))
+    rx2 = sx + int(round(w * x_fin))
+    ry1 = sy + int(round(h * y_ini))
+    ry2 = sy + int(round(h * y_fin))
+    if rx2 > rx1 and ry2 > ry1:
+        dibujo.rectangle((rx1+1, ry1+1, rx2-1, ry2-1), fill=color)
+    return imagen
+
 def dibujar_boton_x(deck, tamaño):
     """Botón profesional con X roja, atenúa el brillo del deck a 0."""
     imagen = _nuevo_lienzo(tamaño)
@@ -914,7 +995,7 @@ def dibujar_negro(deck, tamaño):
 
 def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
-    global tiempo_fallback, tiempo_dim, perfil_visual, wallpaper_on
+    global tiempo_fallback, tiempo_dim, perfil_visual
 
     # Navegación entre páginas (siempre activa)
     if tecla == 0:
@@ -948,8 +1029,8 @@ def _accion_boton(deck, tecla):
             forzar_redraw = True
         return
     if tecla == 7:
-        if pagina_actual != 5:
-            pagina_actual = 5
+        if pagina_actual != 8:
+            pagina_actual = 8
             forzar_redraw = True
         return
 
@@ -997,6 +1078,19 @@ def _accion_boton(deck, tecla):
                 _enviar_combo(accion)
         return
 
+    if pagina_actual == 8:
+        if tecla in VENT_PAGINA:
+            geom = VENT_PAGINA[tecla][5]
+            try:
+                subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-b",
+                                "remove,maximized_vert,maximized_horz"],
+                               check=False, timeout=2)
+                subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", geom],
+                               check=False, timeout=2)
+            except Exception as e:
+                print(f"[VENT] error wmctrl: {e}", flush=True)
+        return
+
     if pagina_actual == 5:
         # Col 0 — Brillo (+ arriba, − abajo)
         if tecla == 8:
@@ -1033,14 +1127,11 @@ def _accion_boton(deck, tecla):
         elif tecla == 11:
             perfil_visual = (perfil_visual % PERFILES_TOTAL) + 1
             _gear_cache.clear(); _app_cache.clear()
-            _web_cache.clear(); _keys_cache.clear()
+            _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
             print(f"[CONFIG] perfil_visual={perfil_visual}", flush=True)
             forzar_redraw = True
-        # Wallpaper ON/OFF
-        elif tecla == 12:
-            wallpaper_on = not wallpaper_on
-            print(f"[CONFIG] wallpaper_on={wallpaper_on}", flush=True)
-            forzar_redraw = True
+        # Wallpaper: la rotación / apagado se maneja en boton_presionado
+        # vía detección de press corto vs long-press (ver _wallpaper_evento).
         # Perfil Kiosko: pasa este deck (B) a AWA. Lanza awa_kiosk pineado
         # al mismo serial como servicio transient, luego para streamdeb.
         elif tecla == 15:
@@ -1077,11 +1168,65 @@ def _accion_boton(deck, tecla):
             except: pass
         return
 
+_sis_press_t       = None  # timestamp del press en tecla SIS (0)
+_wallpaper_press_t = None  # timestamp del press en tecla wallpaper (CONF/12)
+
+def _wallpaper_evento(held):
+    """Procesa la liberación de la tecla wallpaper. held = segundos pulsada."""
+    global wallpaper_idx, forzar_redraw
+    if held >= LONGPRESS_S:
+        wallpaper_idx = 0
+        print(f"[WALLPAPER] long-press {held:.1f}s → OFF", flush=True)
+    else:
+        total = wallpaper_total()
+        if total <= 0:
+            print("[WALLPAPER] sin imágenes disponibles", flush=True)
+            return
+        # 0→1, 1→2, …, total→1 (no vuelve a OFF por pulsación corta)
+        wallpaper_idx = (wallpaper_idx % total) + 1
+        print(f"[WALLPAPER] idx={wallpaper_idx}/{total}", flush=True)
+    forzar_redraw = True
+
+def _sis_evento(held):
+    """Tecla SIS (0): corta = página SIS, larga ≥2s = página CONF."""
+    global pagina_actual, forzar_redraw
+    destino = 5 if held >= LONGPRESS_S else 1
+    etiqueta = "long→CONF" if destino == 5 else "short→SIS"
+    if pagina_actual != destino:
+        pagina_actual = destino
+        forzar_redraw = True
+    print(f"[NAV] SIS {etiqueta} ({held:.2f}s)", flush=True)
+
 def boton_presionado(deck, tecla, estado):
-    global ultimo_toque, _despertar
+    global ultimo_toque, _despertar, _wallpaper_press_t, _sis_press_t
+    ultimo_toque = time.time()
+
+    # Tecla SIS (0): corta = SIS, larga ≥2s = CONF (en cualquier página)
+    if tecla == 0 and not modo_dim_activo:
+        if estado:
+            _sis_press_t = time.time()
+        else:
+            t0 = _sis_press_t
+            _sis_press_t = None
+            if t0 is not None:
+                threading.Thread(target=_sis_evento,
+                                 args=(time.time() - t0,), daemon=True).start()
+        return
+
+    # Tecla wallpaper en CONF: corta = siguiente, larga ≥2s = OFF
+    if pagina_actual == 5 and tecla == 12 and not modo_dim_activo:
+        if estado:
+            _wallpaper_press_t = time.time()
+        else:
+            t0 = _wallpaper_press_t
+            _wallpaper_press_t = None
+            if t0 is not None:
+                threading.Thread(target=_wallpaper_evento,
+                                 args=(time.time() - t0,), daemon=True).start()
+        return
+
     if not estado:
         return
-    ultimo_toque = time.time()
     if modo_dim_activo:
         _despertar = True
         return
@@ -1150,8 +1295,9 @@ def botones_navegacion(deck, tam):
     p4 = dibujar_boton_app_nav(deck, tam, activo=(pagina_actual == 4))
     p_web  = dibujar_boton_web_nav(deck, tam, activo=(pagina_actual == 6))
     p_keys = dibujar_boton_keys_nav(deck, tam, activo=(pagina_actual == 7))
-    gear = dibujar_boton_gear(deck, tam, activo=(pagina_actual == 5))
-    return {0: p1, 1: p2, 2: p3, 3: p4, 5: p_web, 6: p_keys, 7: gear}
+    p_vent = dibujar_boton_vent_nav(deck, tam, activo=(pagina_actual == 8))
+    # CONF se entra con long-press ≥2s en SIS (no tiene nav button).
+    return {0: p1, 1: p2, 2: p3, 3: p4, 5: p_web, 6: p_keys, 7: p_vent}
 
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     global max_visto_down, max_visto_up
@@ -1300,6 +1446,20 @@ def render_pagina_keys(deck, tam):
         imgs[tecla] = dibujar_lanzador_web(deck, tam, label, "#ffcc33", path)
     return imgs
 
+def render_pagina_vent(deck, tam):
+    imgs = dict(botones_navegacion(deck, tam))
+    for tecla, (label, x_ini, x_fin, y_ini, y_fin, _geom) in VENT_PAGINA.items():
+        # Tono base por ancho (tercios cyan, mitades violeta);
+        # más tenue cuando es media-altura, para distinguir filas de un vistazo.
+        es_mitad_x = (x_fin - x_ini) > 0.34
+        es_alto_completo = (y_fin - y_ini) > 0.99
+        if es_mitad_x:
+            color = "#cc66ff" if es_alto_completo else "#aa55cc"
+        else:
+            color = "#66ddff" if es_alto_completo else "#4499bb"
+        imgs[tecla] = dibujar_vent_preview(deck, tam, label, x_ini, x_fin, y_ini, y_fin, color)
+    return imgs
+
 def render_pagina_config(deck, tam):
     nav = botones_navegacion(deck, tam)
     fb_pct  = (tiempo_fallback - TIEMPO_FALLBACK_MIN) / (TIEMPO_FALLBACK_MAX - TIEMPO_FALLBACK_MIN) * 100
@@ -1320,9 +1480,11 @@ def render_pagina_config(deck, tam):
         26: dibujar_panel_metrica(deck, tam, "Dim", "−", "#cc66ff"),
         # Col 3 — Perfil visual (rota entre 1, 2, …)
         11: dibujar_panel_metrica(deck, tam, "Perfil V", f"{perfil_visual}", "#33ff99"),
-        # Col 4 — Wallpaper ON/OFF
-        12: dibujar_panel_metrica(deck, tam, "Wallpaper", "ON" if wallpaper_on else "OFF",
-                                   "#ff66cc" if wallpaper_on else "#666666"),
+        # Col 4 — Wallpaper: corto = siguiente, ≥2s = OFF
+        12: dibujar_panel_metrica(deck, tam, "Wallpaper",
+                                   "OFF" if wallpaper_idx == 0
+                                   else f"{wallpaper_idx}/{wallpaper_total()}",
+                                   "#666666" if wallpaper_idx == 0 else "#ff66cc"),
         # Col 7 fila 1 — perfil Kiosko (justo debajo del gear CONF)
         15: dibujar_panel_metrica(deck, tam, "Perfil", "Kiosko", "#00ddff"),
         # Cols 3-6 (rows 1-3) libres para futuras configuraciones
@@ -1395,6 +1557,8 @@ def iniciar_dashboard():
                     imgs = render_pagina_web(deck, tam)
                 elif pagina_actual == 7:
                     imgs = render_pagina_keys(deck, tam)
+                elif pagina_actual == 8:
+                    imgs = render_pagina_vent(deck, tam)
                 else:
                     imgs = render_pagina_config(deck, tam)
                 last_net = cur_net
