@@ -24,22 +24,26 @@ from core.widgets import dibujar_panel_info
 
 
 # --- Mapeo SIS --------------------------------------------------------
-TECLAS_SHORT = [29, 30, 31]   # fila 3 (cols 5,6,7) — Izq, Cen, Der
-TECLAS_LONG  = [21, 22, 23]   # fila 2 (cols 5,6,7) — Izq, Cen, Der
+TECLAS_SHORT = [29, 30, 31]   # fila 3 — tap por pedal
+TECLAS_LONG  = [21, 22, 23]   # fila 2 — hold por pedal
+TECLA_REST_DOUBLE = 22        # única tile de doble-tap (sólo centro, fila hold)
 
 # Índice del pedal designado como footrest físico (convención Elgato).
+# `None` = los 3 son botones activos.
 PEDAL_REST = 1
+# Ventana del doble-tap del pedal REST. Es la única acción consciente
+# sobre el footrest — tap/hold quedan ignorados como apoyo.
+REST_DOUBLE_WINDOW_S = 0.6
 
 LABELS = ["IZQ", "CEN", "DER"]
 
 
 # --- Umbrales temporales ----------------------------------------------
-# Hold por pedal en segundos. El pie no-dominante (izq) suele tener
-# menos precisión temporal — se le da más margen para que el tap quede
-# claramente debajo del umbral. Centro no aplica (es REST).
-LONGPRESS_S = [1.0, 0.8, 0.8]   # [IZQ, CEN, DER]
-# Debounce: ignorar pulsaciones <40ms (rebote mecánico / bump).
-DEBOUNCE_S  = 0.04
+# Hold por pedal en segundos. El izq necesita más margen — el recorrido
+# del pie a la izquierda es menos preciso temporalmente.
+LONGPRESS_S = [1.2, 1.0, 1.0]   # [IZQ, CEN, DER]
+# Debounce: ignorar pulsaciones <25ms (rebote mecánico).
+DEBOUNCE_S  = 0.025
 # Stuck: pisado > 5s sin soltar = "resting", el release no dispara.
 STUCK_S     = 5.0
 # Cooldown post-acción para evitar dobles disparos por rebote al soltar.
@@ -51,6 +55,7 @@ FLASH_S = 0.7
 # --- Paleta -----------------------------------------------------------
 COLORS_SHORT = ["#33ddff", "#888888", "#ffcc33"]   # cen dim (REST)
 COLORS_LONG  = ["#0088aa", "#555555", "#aa7700"]
+COLOR_DOUBLE_CEN = "#66dd66"   # doble-tap del centro
 DIM      = "#444444"
 TEXT_DIM = "#888888"
 REST_COLOR = "#555555"
@@ -65,15 +70,17 @@ PEDAL_SERIAL = os.environ.get("STREAMDEB_PEDAL_SERIAL", "").strip()
 _lock = threading.Lock()
 _press_t      = [0.0, 0.0, 0.0]
 _pressed      = [False, False, False]
-_armed_long   = [False, False, False]   # cruzó LONGPRESS_S mientras se mantiene
-_resting      = [False, False, False]   # quedó pisado > STUCK_S → próximo release no dispara
+_armed_long   = [False, False, False]   # cruzó umbral mientras se mantiene
+_resting      = [False, False, False]   # pisado > STUCK_S → próximo release no dispara
 _last_fire_t  = [0.0, 0.0, 0.0]         # epoch del último disparo (cooldown)
 _flash_until  = [0.0, 0.0, 0.0]
-_flash_kind   = [None, None, None]      # "short" | "long" | None
+_flash_kind   = [None, None, None]      # "short" | "long" | "double" | None
+_rest_pending_until = 0.0               # epoch hasta cuando un tap REST espera segundo
 
 _forzar_redraw_fn = lambda: None
-_on_short = lambda i: None
-_on_long  = lambda i: None
+_on_short      = lambda i: None
+_on_long       = lambda i: None
+_on_rest_double = lambda: None
 
 
 def set_forzar_redraw_fn(fn):
@@ -81,14 +88,14 @@ def set_forzar_redraw_fn(fn):
     _forzar_redraw_fn = fn
 
 
-def set_handlers(on_short=None, on_long=None):
-    """Registra callbacks de acción. Cada uno recibe el índice 0..2.
-    El pedal PEDAL_REST nunca dispara — su handler es ignorado."""
-    global _on_short, _on_long
-    if on_short is not None:
-        _on_short = on_short
-    if on_long is not None:
-        _on_long = on_long
+def set_handlers(on_short=None, on_long=None, on_rest_double=None):
+    """Registra callbacks. `on_short`/`on_long` reciben índice 0..2 y
+    sólo disparan para pedales != PEDAL_REST. `on_rest_double` no recibe
+    argumentos — es la única acción del pedal REST."""
+    global _on_short, _on_long, _on_rest_double
+    if on_short       is not None: _on_short       = on_short
+    if on_long        is not None: _on_long        = on_long
+    if on_rest_double is not None: _on_rest_double = on_rest_double
 
 
 # --- Device callback --------------------------------------------------
@@ -112,15 +119,28 @@ def _key_callback(deck, key, state):
             if _resting[key]:
                 _resting[key] = False
                 print(f"[PEDAL] {key+1} rest-release ({held*1000:.0f}ms) ignorado", flush=True)
-            # Debounce: presses muy cortos = bump.
             elif held < DEBOUNCE_S:
                 print(f"[PEDAL] {key+1} debounce ({held*1000:.0f}ms)", flush=True)
-            # Cooldown: ventana post-disparo para evitar rebote.
             elif ahora - _last_fire_t[key] < COOLDOWN_S:
                 print(f"[PEDAL] {key+1} cooldown ({held*1000:.0f}ms)", flush=True)
-            # Pedal designado como REST: nunca dispara acción.
             elif key == PEDAL_REST:
-                print(f"[PEDAL] {key+1} REST tap ({held*1000:.0f}ms) ignorado", flush=True)
+                # REST: hold ignorado siempre. Tap intentando ser parte
+                # de un doble — si hay pending dentro de ventana, dispara
+                # double; si no, abre la ventana.
+                global _rest_pending_until
+                if held >= LONGPRESS_S[key]:
+                    _rest_pending_until = 0.0
+                    print(f"[PEDAL] {key+1} REST hold ({held*1000:.0f}ms) ignorado", flush=True)
+                elif _rest_pending_until > ahora:
+                    _rest_pending_until = 0.0
+                    _flash_kind[key]  = "double"
+                    _flash_until[key] = ahora + FLASH_S
+                    _last_fire_t[key] = ahora
+                    fire_kind = "rest_double"
+                    print(f"[PEDAL] {key+1} REST double ({held*1000:.0f}ms)", flush=True)
+                else:
+                    _rest_pending_until = ahora + REST_DOUBLE_WINDOW_S
+                    print(f"[PEDAL] {key+1} REST tap-pending ({held*1000:.0f}ms)", flush=True)
             else:
                 kind = "long" if held >= LONGPRESS_S[key] else "short"
                 _flash_kind[key]  = kind
@@ -131,7 +151,12 @@ def _key_callback(deck, key, state):
 
     if fire_kind is not None:
         try:
-            (_on_long if fire_kind == "long" else _on_short)(key)
+            if fire_kind == "rest_double":
+                _on_rest_double()
+            elif fire_kind == "long":
+                _on_long(key)
+            else:
+                _on_short(key)
         except Exception as e:
             print(f"[PEDAL] handler: {e}", flush=True)
     _forzar_redraw_fn()
@@ -184,18 +209,19 @@ def tareas_fondo():
         ahora = time.time()
         cambio = False
         with _lock:
+            global _rest_pending_until
+            if _rest_pending_until and ahora >= _rest_pending_until:
+                _rest_pending_until = 0.0
+                cambio = True   # apaga hint visual del pending
             for i in range(3):
-                # Vencimiento de flash visual.
                 if _flash_kind[i] is not None and ahora >= _flash_until[i]:
                     _flash_kind[i] = None
                     cambio = True
                 if _pressed[i]:
                     held = ahora - _press_t[i]
-                    # Cruce de LONGPRESS_S: visual short → long en vivo.
                     if not _armed_long[i] and held >= LONGPRESS_S[i]:
                         _armed_long[i] = True
                         cambio = True
-                    # Cruce de STUCK_S: marcar resting (auto-release lógico).
                     if not _resting[i] and held >= STUCK_S:
                         _resting[i] = True
                         cambio = True
@@ -203,7 +229,6 @@ def tareas_fondo():
         if cambio:
             _forzar_redraw_fn()
 
-        # Reabrir si se desconecta en caliente.
         try:
             if hasattr(deck, "connected") and not deck.connected():
                 print("[PEDAL] desconectado, reintentando", flush=True)
@@ -218,7 +243,7 @@ def tareas_fondo():
 # --- Widgets ----------------------------------------------------------
 
 def _estado_visual(i):
-    """(color_short, color_long, txt_short, txt_long) según estado i."""
+    """(c_short, c_long, t_short, t_long) según estado i."""
     ahora = time.time()
     with _lock:
         pressed = _pressed[i]
@@ -227,44 +252,49 @@ def _estado_visual(i):
         kind    = _flash_kind[i]
         flash_active = kind is not None and ahora < _flash_until[i]
 
-    # Pedal REST: visual estático aunque se pise (se "consume" como rest).
     if i == PEDAL_REST:
         return REST_COLOR, REST_COLOR, REST_TEXT, REST_TEXT
 
     c_short, c_long = DIM, DIM
-    txt_short, txt_long = TEXT_DIM, TEXT_DIM
+    t_short, t_long = TEXT_DIM, TEXT_DIM
 
     if pressed and not resting:
-        # Mientras está pisado: NO iluminar tap (sería un falso "vas a
-        # hacer tap"). Sólo iluminar long una vez cruzado el umbral —
-        # confirma "ya estás en zona de hold". Si suelta antes del
-        # umbral, el flash de tap aparece recién al release.
+        # Antes del umbral: nada. Tras cruzar: hold iluminado en vivo.
         if armed:
-            c_long, txt_long = COLORS_LONG[i], "#ffffff"
+            c_long, t_long = COLORS_LONG[i], "#ffffff"
     elif flash_active:
         if kind == "short":
-            c_short, txt_short = COLORS_SHORT[i], "#ffffff"
+            c_short, t_short = COLORS_SHORT[i], "#ffffff"
         else:
-            c_long, txt_long = COLORS_LONG[i], "#ffffff"
-    return c_short, c_long, txt_short, txt_long
+            c_long, t_long   = COLORS_LONG[i],  "#ffffff"
+    return c_short, c_long, t_short, t_long
 
 
 def widget_para_sistema(deck, tam):
-    """Devuelve dict {tecla: img} con las 6 tiles del pedal en SIS."""
+    """Devuelve dict {tecla: img}: 6 tiles tap/hold + 1 tile doble-tap
+    para el pedal REST."""
     out = {}
     for i in range(3):
         c_short, c_long, t_short, t_long = _estado_visual(i)
         if i == PEDAL_REST:
-            label, sub = "REST", "·"
+            # Fila tap → REST estático. Fila hold se sobreescribe abajo
+            # con la tile de doble-tap (TECLA_REST_DOUBLE).
+            out[TECLAS_SHORT[i]] = dibujar_panel_info(deck, tam, "REST", "·", c_short, valor_color=t_short)
         else:
-            label, sub = LABELS[i], "tap"
-        out[TECLAS_SHORT[i]] = dibujar_panel_info(
-            deck, tam, label, sub, c_short, valor_color=t_short,
-        )
-        out[TECLAS_LONG[i]] = dibujar_panel_info(
-            deck, tam,
-            "REST" if i == PEDAL_REST else f"{LABELS[i]} L",
-            "·" if i == PEDAL_REST else "hold",
-            c_long, valor_color=t_long,
-        )
+            out[TECLAS_SHORT[i]] = dibujar_panel_info(deck, tam, LABELS[i],        "tap",  c_short, valor_color=t_short)
+            out[TECLAS_LONG[i]]  = dibujar_panel_info(deck, tam, f"{LABELS[i]} L", "hold", c_long,  valor_color=t_long)
+
+    # Tile extra: doble-tap del centro. Se ilumina mientras hay pending
+    # (hint del primer tap) y al flash de "double".
+    ahora = time.time()
+    with _lock:
+        pending      = _rest_pending_until > ahora
+        flash_active = (_flash_kind[PEDAL_REST] == "double"
+                        and ahora < _flash_until[PEDAL_REST])
+    c_dbl, t_dbl = DIM, TEXT_DIM
+    if pending or flash_active:
+        c_dbl, t_dbl = COLOR_DOUBLE_CEN, "#ffffff"
+    out[TECLA_REST_DOUBLE] = dibujar_panel_info(
+        deck, tam, "CEN", "x2", c_dbl, valor_color=t_dbl,
+    )
     return out
