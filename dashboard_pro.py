@@ -171,6 +171,7 @@ from plugins import pomodoro as plugin_pomo
 from plugins import docker   as plugin_docker
 from plugins import clima    as plugin_clima
 from plugins import contexto as plugin_ctx
+from plugins import pedal    as plugin_pedal
 APPS_PAGINA = plugin_apps.APPS_PAGINA
 WEB_PAGINA  = plugin_web.WEB_PAGINA
 KEYS_PAGINA = plugin_keys.KEYS_PAGINA
@@ -766,11 +767,19 @@ def _ctx_forzar_redraw():
     forzar_redraw = True
 plugin_ctx.set_forzar_redraw_fn(_ctx_forzar_redraw)
 
+# PEDAL: reusa el mismo patrón — al pulsar/soltar un pedal queremos
+# refrescar los 6 tiles de SIS para mostrar el flash visual.
+def _pedal_forzar_redraw():
+    global forzar_redraw
+    forzar_redraw = True
+plugin_pedal.set_forzar_redraw_fn(_pedal_forzar_redraw)
+
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets = {}
     widgets.update(plugin_pomo.widget_para_sistema(deck, tam))
     widgets.update(plugin_clima.widget_para_sistema(deck, tam))
     widgets.update(plugin_docker.widget_para_sistema(deck, tam))
+    widgets.update(plugin_pedal.widget_para_sistema(deck, tam))
     return plugin_sistema.render_pagina_sistema(
         deck, tam, botones_navegacion(deck, tam),
         last_net, cur_net, net_info, _ping_pct_relativo,
@@ -877,6 +886,7 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_pomo.tareas_fondo,   daemon=True).start()
     threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
     threading.Thread(target=plugin_sistema.tareas_fondo, daemon=True).start()
+    threading.Thread(target=plugin_pedal.tareas_fondo,   daemon=True).start()
     last_net = psutil.net_io_counters()
     pagina_anterior = None
 
