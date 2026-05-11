@@ -56,13 +56,14 @@ def _ip_2_lineas(ip):
     return ip
 
 
-def _fit_font(dibujo, txt, max_width, max_size, min_size=10):
+def _fit_font(dibujo, txt, max_width, max_size, min_size=10, font_path=None):
     """Devuelve la fuente más grande (≤ max_size) cuyo render de `txt` cabe en max_width."""
+    fp = font_path or FONT_PATH
     for size in range(max_size, min_size - 1, -1):
-        f = ImageFont.truetype(FONT_PATH, size)
+        f = ImageFont.truetype(fp, size)
         if dibujo.textlength(txt, font=f) <= max_width:
             return f
-    return ImageFont.truetype(FONT_PATH, min_size)
+    return ImageFont.truetype(fp, min_size)
 
 
 def obtener_color_rango(valor):

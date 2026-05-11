@@ -12,7 +12,8 @@ from core.widgets import dibujar_panel_metrica, dibujar_boton_x
 def render_pagina_config(deck, tam, nav_imgs, *,
                           brillo_actual, tiempo_fallback, tiempo_dim,
                           perfil_visual, wallpaper_idx, wallpaper_total,
-                          banner_enabled, monitor_brillo):
+                          banner_enabled, monitor_brillo,
+                          tema_lcars="classic"):
     """Render de CONF. Recibe el snapshot de state actual como kwargs.
     `wallpaper_total` es el entero (no la función) para evitar import circular."""
     fb_pct  = (tiempo_fallback - TIEMPO_FALLBACK_MIN) / (TIEMPO_FALLBACK_MAX - TIEMPO_FALLBACK_MIN) * 100
@@ -47,8 +48,13 @@ def render_pagina_config(deck, tam, nav_imgs, *,
             "ON" if banner_enabled else "OFF",
             "#ffaa66" if banner_enabled else "#666666",
         ),
-        # Col 6 — Perfil visual (rota 1 → 2 → … → 1)
-        14: dibujar_panel_metrica(deck, tam, "Perfil V", f"{perfil_visual}", "#33ff99"),
+        # Col 6 — Perfil visual: en perfil 3 muestra el tema y rota entre
+        # 1 → 2 → 3·<tema1> → 3·<tema2> → ... → wrap a 1.
+        14: dibujar_panel_metrica(
+            deck, tam, "Perfil V",
+            (tema_lcars[:7].upper() if perfil_visual == 3 else str(perfil_visual)),
+            "#33ff99" if perfil_visual != 3 else "#ff77cc",
+        ),
         # Col 7 fila 1 — perfil Kiosko
         15: dibujar_panel_metrica(deck, tam, "Perfil", "Kiosko", "#00ddff"),
         # X de apagado

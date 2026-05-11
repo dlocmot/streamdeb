@@ -183,6 +183,19 @@ def _resolver_app(candidatos):
     return candidatos[0] if candidatos else ""
 
 
+def _resolver_pedal_app(candidatos):
+    """Para pedal_apps: prioriza match exacto contra su registry; si no,
+    devuelve la primera candidata cruda (para que 'default' coja el caso)."""
+    try:
+        from plugins import pedal_apps
+        for c in candidatos:
+            if c in pedal_apps.all_apps():
+                return c
+    except Exception:
+        pass
+    return candidatos[0] if candidatos else ""
+
+
 def tareas_fondo():
     """Poll xprop cada CTX_POLL_S y guarda wm_class_actual + candidatos.
     Si cambia la app, fuerza redraw para limpiar iconos stale del set anterior."""
@@ -195,6 +208,12 @@ def tareas_fondo():
                 wm_class_actual     = _resolver_app(cands)
                 tag = "✓" if wm_class_actual in CONTEXTO_APPS else "—"
                 print(f"[CTX] {tag} {cands} → {wm_class_actual}", flush=True)
+                # Re-sync pedal bindings al cambiar app activa.
+                try:
+                    from plugins import pedal_apps
+                    pedal_apps.sync(_resolver_pedal_app(cands))
+                except Exception as e:
+                    print(f"[CTX] pedal sync err: {e}", flush=True)
                 _forzar_redraw_fn()
         except Exception as e:
             print(f"[CTX] poll error: {e}", flush=True)

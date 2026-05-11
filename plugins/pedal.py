@@ -270,22 +270,46 @@ def _estado_visual(i):
     return c_short, c_long, t_short, t_long
 
 
+def _binding_labels():
+    """Lee las etiquetas del binding activo desde plugins.pedal_apps.
+    Devuelve dict con keys tap_izq/tap_der/hold_izq/hold_der/double_cen."""
+    try:
+        from plugins import pedal_apps
+        return pedal_apps.current_labels()
+    except Exception:
+        return {}
+
+
 def widget_para_sistema(deck, tam):
-    """Devuelve dict {tecla: img}: 6 tiles tap/hold + 1 tile doble-tap
-    para el pedal REST."""
+    """Devuelve dict {tecla: img}: 5 tiles del pedal (tap IZQ/DER, hold
+    IZQ/DER, doble-tap CEN) + tile REST estática del centro. Las etiquetas
+    son dinámicas — reflejan el binding del app activa (vía pedal_apps)."""
     out = {}
+    labels = _binding_labels()
+    L = {
+        "tap_izq":    labels.get("tap_izq",    "IZQ"),
+        "tap_der":    labels.get("tap_der",    "DER"),
+        "hold_izq":   labels.get("hold_izq",   "IZQ L"),
+        "hold_der":   labels.get("hold_der",   "DER L"),
+        "double_cen": labels.get("double_cen", "x2"),
+    }
     for i in range(3):
         c_short, c_long, t_short, t_long = _estado_visual(i)
         if i == PEDAL_REST:
-            # Fila tap → REST estático. Fila hold se sobreescribe abajo
-            # con la tile de doble-tap (TECLA_REST_DOUBLE).
+            # Fila tap del centro → REST estático (footrest convención Elgato).
             out[TECLAS_SHORT[i]] = dibujar_panel_info(deck, tam, "REST", "·", c_short, valor_color=t_short)
-        else:
-            out[TECLAS_SHORT[i]] = dibujar_panel_info(deck, tam, LABELS[i],        "tap",  c_short, valor_color=t_short)
-            out[TECLAS_LONG[i]]  = dibujar_panel_info(deck, tam, f"{LABELS[i]} L", "hold", c_long,  valor_color=t_long)
+        elif i == 0:  # IZQ
+            out[TECLAS_SHORT[i]] = dibujar_panel_info(deck, tam, "IZQ", L["tap_izq"],
+                                                      c_short, valor_color=t_short)
+            out[TECLAS_LONG[i]]  = dibujar_panel_info(deck, tam, "IZQ L", L["hold_izq"],
+                                                      c_long, valor_color=t_long)
+        else:  # DER (i == 2)
+            out[TECLAS_SHORT[i]] = dibujar_panel_info(deck, tam, "DER", L["tap_der"],
+                                                      c_short, valor_color=t_short)
+            out[TECLAS_LONG[i]]  = dibujar_panel_info(deck, tam, "DER L", L["hold_der"],
+                                                      c_long, valor_color=t_long)
 
-    # Tile extra: doble-tap del centro. Se ilumina mientras hay pending
-    # (hint del primer tap) y al flash de "double".
+    # Tile extra: doble-tap del centro. Se ilumina mientras hay pending o flash.
     ahora = time.time()
     with _lock:
         pending      = _rest_pending_until > ahora
@@ -295,6 +319,6 @@ def widget_para_sistema(deck, tam):
     if pending or flash_active:
         c_dbl, t_dbl = COLOR_DOUBLE_CEN, "#ffffff"
     out[TECLA_REST_DOUBLE] = dibujar_panel_info(
-        deck, tam, "CEN", "x2", c_dbl, valor_color=t_dbl,
+        deck, tam, "CEN x2", L["double_cen"], c_dbl, valor_color=t_dbl,
     )
     return out

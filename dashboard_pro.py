@@ -46,7 +46,7 @@ from core.iconos import (
     favicon_path as _favicon_core,
 )
 from core.widgets import (
-    _nuevo_lienzo, set_con_marco_fn,
+    _nuevo_lienzo, set_con_marco_fn, set_perfil_fn, set_lcars_theme_fn,
     dibujar_panel_metrica, dibujar_panel_info, dibujar_panel_2lineas,
     dibujar_lanzador, dibujar_lanzador_web,
     dibujar_boton_nav, dibujar_boton_fijo, dibujar_boton_x, dibujar_negro,
@@ -71,15 +71,17 @@ forzar_redraw = False
 brillo_actual    = 75
 tiempo_fallback  = 300    # s sin interacción en otra pág. → vuelve a SIS
 tiempo_dim       = 1800   # s sin interacción → atenúa el deck
-perfil_visual    = 1      # 1 = con marcos · 2 = sin marco externo
-PERFILES_TOTAL   = 2
+perfil_visual    = 1      # 1 = con marcos · 2 = sin marco externo · 3 = LCARS (TNG)
+PERFILES_TOTAL   = 3
+tema_lcars       = "classic"   # nombre del tema activo (plugins/themes/<name>.py)
 banner_enabled   = False  # Si True, la auto-fallback va a página IDLE/BANNER (9) en vez de SIS
 monitor_brillo   = 100    # % brillo del monitor externo vía xrandr gamma
 
 # --- Persistencia: carga state guardado y override defaults ---
 from core import persistence
 _PERSIST_KEYS = ("brillo_actual", "tiempo_fallback", "tiempo_dim",
-                  "perfil_visual", "wallpaper_idx", "banner_enabled")
+                  "perfil_visual", "wallpaper_idx", "banner_enabled",
+                  "tema_lcars")
 
 def _persist_save():
     """Guarda el snapshot actual de state. Llamar tras cada mutación."""
@@ -91,6 +93,7 @@ def _persist_save():
         "wallpaper_idx":   wp_get_idx(),
         "banner_enabled":  banner_enabled,
         "monitor_brillo":  monitor_brillo,
+        "tema_lcars":      tema_lcars,
     })
 
 def wp_get_idx():
@@ -100,7 +103,7 @@ def wp_get_idx():
 
 def _persist_load():
     """Aplica el state guardado a los globals al iniciar."""
-    global brillo_actual, tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled, monitor_brillo
+    global brillo_actual, tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled, monitor_brillo, tema_lcars
     saved = persistence.load()
     if not saved:
         return
@@ -110,6 +113,7 @@ def _persist_load():
     perfil_visual    = int(saved.get("perfil_visual",   perfil_visual))
     banner_enabled   = bool(saved.get("banner_enabled", banner_enabled))
     monitor_brillo   = int(saved.get("monitor_brillo",  monitor_brillo))
+    tema_lcars       = str(saved.get("tema_lcars",      tema_lcars))
     # wallpaper_idx se aplica en _abrir_deck (después de wp.set_layout)
     print(f"[STATE] cargado: brillo={brillo_actual} fallback={tiempo_fallback}s "
           f"dim={tiempo_dim}s perfil={perfil_visual} banner={banner_enabled} "
@@ -241,11 +245,30 @@ def tareas_red_fondo():
 # --- Dibujo (los primitivos vienen de core.widgets; aquí solo el hook de marco) ---
 
 def _con_marco():
-    """¿Se dibuja el marco externo del botón? Depende del perfil visual activo."""
+    """¿Se dibuja el marco externo del botón? Sólo perfil 1.
+    Perfil 2 = limpio (sin marco). Perfil 3 = LCARS (chrome propio)."""
     return perfil_visual == 1
 
-# Wirea el hook que core.widgets usa para decidir si renderiza marcos
+def _perfil():
+    return perfil_visual
+
+def _lcars_theme():
+    """Nombre del tema LCARS activo (persistido en `tema_lcars`)."""
+    return tema_lcars
+
+# Wirea hooks que core.widgets usa para decidir estilo
 set_con_marco_fn(_con_marco)
+set_perfil_fn(_perfil)
+set_lcars_theme_fn(_lcars_theme)
+
+# Carga todos los plugins de tema y arranca el loop de animación.
+from plugins import themes as _theme_registry
+_theme_registry.autoload()
+_theme_registry.set_active_fn(_lcars_theme)
+def _force_redraw():
+    global forzar_redraw
+    forzar_redraw = True
+_theme_registry.start_animation_thread(_force_redraw, fps=8)
 
 # --- Wallpaper + render core: ahora en core/wallpaper.py + core/render.py ---
 from core import wallpaper as wp
@@ -459,12 +482,35 @@ def _accion_boton(deck, tecla):
             print(f"[CONFIG] banner_enabled={banner_enabled}", flush=True)
             forzar_redraw = True; _persist_save()
         # Col 6 — Perfil visual (rota 1 → 2 → … → 1)
+        # Col 6 — Perfil V: rotación unificada 1 → 2 → 3·<tema1> → 3·<tema2>
+        # → ... → wrap a 1. En perfil 3, cada tap avanza al siguiente tema
+        # del registry; al llegar al último, vuelve a perfil 1.
         elif tecla == 14:
-            perfil_visual = (perfil_visual % PERFILES_TOTAL) + 1
+            global tema_lcars
+            theme_names = _theme_registry.names()
+            if perfil_visual != 3:
+                # 1 → 2 → 3 (entrando en LCARS con primer tema)
+                if perfil_visual + 1 < 3:
+                    perfil_visual += 1
+                else:
+                    perfil_visual = 3
+                    if theme_names:
+                        tema_lcars = theme_names[0]
+            else:
+                # En perfil 3: avanza tema; si era el último, sale a perfil 1.
+                if theme_names:
+                    try: i = theme_names.index(tema_lcars)
+                    except ValueError: i = -1
+                    if i + 1 >= len(theme_names):
+                        perfil_visual = 1
+                    else:
+                        tema_lcars = theme_names[i + 1]
+                else:
+                    perfil_visual = 1
             _gear_cache.clear(); _app_cache.clear()
             _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
             _invalidar_render_cache()
-            print(f"[CONFIG] perfil_visual={perfil_visual}", flush=True)
+            print(f"[CONFIG] perfil_visual={perfil_visual} tema_lcars={tema_lcars}", flush=True)
             forzar_redraw = True; _persist_save()
         # Perfil Kiosko: pasa este deck (B) a AWA. Lanza awa_kiosk pineado
         # al mismo serial como servicio transient, luego para streamdeb.
@@ -701,6 +747,8 @@ def _abrir_deck():
                 _invalidar_render_cache()
             DECK_ROWS, DECK_COLS = rows, cols
             wp.set_layout(cols, rows)
+            # Chrome LCARS global usa el layout real del deck.
+            render_core.set_lcars_config(lambda: perfil_visual == 3, cols, rows)
             # Aplicar wallpaper_idx persistido (ahora que el layout está listo)
             saved = persistence.load()
             wp.set_idx(int(saved.get("wallpaper_idx", 0)))
@@ -774,6 +822,14 @@ def _pedal_forzar_redraw():
     forzar_redraw = True
 plugin_pedal.set_forzar_redraw_fn(_pedal_forzar_redraw)
 
+# Pedal bindings context-aware: cada app activa puede tener su mapping
+# de los 5 slots (tap_izq/tap_der/hold_izq/hold_der/double_cen). Plugin
+# registry en plugins/pedal_apps/.
+from plugins import pedal_apps as _pedal_apps
+_pedal_apps.autoload()
+_pedal_apps.add_listener(_pedal_forzar_redraw)
+_pedal_apps.sync("default")   # estado inicial hasta que CTX detecte algo
+
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets = {}
     widgets.update(plugin_pomo.widget_para_sistema(deck, tam))
@@ -841,6 +897,7 @@ def render_pagina_config(deck, tam):
         tiempo_dim=tiempo_dim, perfil_visual=perfil_visual,
         wallpaper_idx=wp.get_idx(), wallpaper_total=wp.total(),
         banner_enabled=banner_enabled, monitor_brillo=monitor_brillo,
+        tema_lcars=tema_lcars,
     )
 
 
