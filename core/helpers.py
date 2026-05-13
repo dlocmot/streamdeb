@@ -25,10 +25,17 @@ def _run(cmd):
 
 
 def _lanzar(cmd):
-    """Fire-and-forget: app desktop con su propia sesión, sin bloquear."""
+    """Fire-and-forget: app desktop en su propio scope systemd (transient,
+    --collect = se limpia solo al terminar). Sale del cgroup de streamdeb,
+    así su RSS no se suma al `Memory:` del servicio y sobrevive a restarts
+    sin depender de KillMode=process."""
     try:
-        subprocess.Popen(cmd, shell=True, env=_env_sesion(), start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            ["systemd-run", "--user", "--scope", "--collect", "--quiet",
+             "bash", "-lc", cmd],
+            env=_env_sesion(), start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
         print(f"[LAUNCH] {cmd}", flush=True)
     except Exception as e:
         print(f"[ERR LAUNCH] {cmd}: {e}", flush=True)
