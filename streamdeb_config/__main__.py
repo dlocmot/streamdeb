@@ -373,9 +373,15 @@ class ConfigWindow(Gtk.ApplicationWindow):
         if cell is None:
             return
         try:
-            img = Image.open(png_path).convert("RGBA")
+            with Image.open(png_path) as src:
+                src.load()           # fuerza decode antes de salir del with
+                img = src.convert("RGBA")
             tex = _pil_to_texture(img)
         except Exception:
+            # PNG truncado / lectura concurrente con la escritura del deck.
+            # Limpiamos el mtime cacheado para retry en el siguiente tick
+            # (sin esto el tile queda "pegado" hasta el próximo redraw real).
+            self._mtimes.pop(("tile", self.current_page, k), None)
             return
         child = cell.get_child()
         if isinstance(child, Gtk.Picture):
@@ -977,12 +983,17 @@ _CSS = b"""
 }
 .deck-bg button.flat {
     background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    padding: 0;
 }
 .deck-bg button.flat:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.30);
 }
 .deck-bg button.suggested-action {
-    background-color: rgba(255, 255, 255, 0.18);
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 220, 100, 0.85);
 }
 """
 
