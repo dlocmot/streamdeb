@@ -29,6 +29,20 @@ from streamdeb_config.picker_app import AppPicker               # noqa: E402
 THUMB_PX = 96    # tamaño nativo del deck XL (entrada a core/widgets)
 DISPLAY_PX = 84  # tamaño visible en el grid (downscale ligero)
 
+# Layout de la fila 0 — coincide con dashboard_pro.botones_navegacion().
+# Estos slots NO son editables desde el GUI: el render runtime los pisa
+# con los nav buttons (cuenta AWA en vivo, volumen, etc). Key 5 está libre.
+NAV_LAYOUT: dict[int, tuple[str, str]] = {
+    0: ("SIS",   "#ffaa00"),
+    1: ("AWA",   "#00ddff"),
+    2: ("MEDIA", "#cc66ff"),
+    3: ("APP",   "#ff9933"),
+    4: ("CTX",   "#22dd88"),
+    # 5: libre
+    6: ("KEYS",  "#ffcc33"),
+    7: ("VENT",  "#66ddff"),
+}
+
 
 # ─────────────────────── thumbnails ───────────────────────
 
@@ -51,6 +65,12 @@ def _vent_color(btn):
     if es_mitad_x:
         return "#cc66ff" if es_alto_completo else "#aa55cc"
     return "#66ddff" if es_alto_completo else "#4499bb"
+
+
+def render_nav_placeholder(key: int):
+    """Tile de nav 'locked' a 96x96 — visualmente similar al del deck."""
+    titulo, color = NAV_LAYOUT[key]
+    return W.dibujar_boton_nav(None, (THUMB_PX, THUMB_PX), titulo, color=color)
 
 
 def render_button(page_name: str, btn):
@@ -267,6 +287,21 @@ class ConfigWindow(Gtk.ApplicationWindow):
         cell = Gtk.Button()
         cell.set_size_request(DISPLAY_PX, DISPLAY_PX)
         cell.add_css_class("flat")
+        # Fila nav (0..7 menos 5): siempre placeholder locked, ignora btn
+        if k in NAV_LAYOUT:
+            try:
+                img = render_nav_placeholder(k)
+                tex = _pil_to_texture(img)
+                pic = Gtk.Picture.new_for_paintable(tex)
+                pic.set_size_request(DISPLAY_PX, DISPLAY_PX)
+                cell.set_child(pic)
+            except Exception:
+                cell.set_label(NAV_LAYOUT[k][0])
+            cell.set_tooltip_text(f"key {k} — nav (no editable)")
+            cell.connect("clicked", self._on_cell_clicked, k)
+            if k == self.selected_key:
+                cell.add_css_class("suggested-action")
+            return cell
         if btn is not None:
             try:
                 img = render_button(self.current_page, btn)
@@ -342,6 +377,25 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self._panel_row(row_idx, "Key", Gtk.Label(label=str(self.selected_key),
                                                     xalign=0))
         row_idx += 1
+
+        # Nav slot (locked)
+        if self.selected_key in NAV_LAYOUT:
+            titulo, color = NAV_LAYOUT[self.selected_key]
+            self._panel_row(row_idx, "Tipo",
+                              Gtk.Label(label=f"🔒 nav · {titulo}", xalign=0))
+            row_idx += 1
+            self._panel_row(row_idx, "Color",
+                              Gtk.Label(label=color, xalign=0))
+            row_idx += 1
+            note = Gtk.Label(
+                label=("Esta tecla es navegación — la dibuja "
+                       "dashboard_pro.botones_navegacion() en runtime con "
+                       "datos vivos (cuenta AWA, volumen, etc). No es "
+                       "editable desde la GUI."),
+                xalign=0, wrap=True, max_width_chars=34)
+            note.add_css_class("dim-label")
+            self.panel_grid.attach(note, 0, row_idx, 2, 1)
+            return
 
         if btn is None:
             if page_name == "vent":
@@ -533,6 +587,8 @@ class ConfigWindow(Gtk.ApplicationWindow):
 
     def _add_button(self, key: int):
         """Crea un botón en `key` con defaults según la página actual."""
+        if key in NAV_LAYOUT:
+            return  # no permitir override de nav
         page_name = self.current_page
         if page_name == "apps":
             new = userconfig.AppButton(
