@@ -1071,29 +1071,37 @@ def iniciar_dashboard():
                 continue
 
             try:
+                # Snapshot de pagina_actual al inicio del iter: si un press
+                # (físico o inyectado por la GUI) la cambia entre la
+                # renderización y el dump, sin snapshot los imgs viejos
+                # acabarían en el dir del page nuevo (mirror desync visto
+                # como "tile MUTE de MEDIA aparece en APPS").
+                page_now = pagina_actual
+
                 cur_net = psutil.net_io_counters()
-                if pagina_actual == 1:
+                if page_now == 1:
                     imgs = render_pagina_sistema(deck, tam, last_net, cur_net)
                 else:
-                    imgs = PAGINAS_RENDER.get(pagina_actual, render_pagina_config)(deck, tam)
+                    imgs = PAGINAS_RENDER.get(page_now, render_pagina_config)(deck, tam)
                 last_net = cur_net
+
+                # Wirea YA _current_page_id para que el dump de esta iter
+                # vaya al subdir correcto, antes de cualquier _finalizar.
+                render_core.set_current_page(page_now)
 
                 # `with deck:` agrupa writes en un bloque atómico (lock interno
                 # de la librería) — más robusto frente a reconexión USB y
                 # señaliza al DummyDeck cuándo redibujar el mosaico.
                 with deck:
-                    if pagina_actual != pagina_anterior or forzar_redraw:
-                        if pagina_actual != pagina_anterior:
+                    if page_now != pagina_anterior or forzar_redraw:
+                        if page_now != pagina_anterior:
                             # Cambio de página: descarta el dedup (mismo tecla
                             # con contenido distinto fuerza redraw real).
                             render_core._last_sent.clear()
-                            # Live preview: el GUI configurador mirror lo que
-                            # se está dibujando, necesita el id correcto.
-                            render_core.set_current_page(pagina_actual)
                         for k in range(deck.key_count()):
                             if k not in imgs:
                                 _push_key(deck, k, _finalizar(deck, tam, None, k))
-                        pagina_anterior = pagina_actual
+                        pagina_anterior = page_now
                         forzar_redraw = False
 
                     for key, img in imgs.items():
