@@ -153,6 +153,8 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self._pending_redraw: int | None = None
         # Cell widgets indexados por key (para repintar uno solo)
         self._cells: dict[int, Gtk.Button] = {}
+        # mtime de los paths TOML — el watcher polea y refresca cuando cambia
+        self._mtimes: dict = {}
 
         # ── HeaderBar ──
         header = Gtk.HeaderBar()
@@ -223,6 +225,8 @@ class ConfigWindow(Gtk.ApplicationWindow):
         body.append(scroller)
 
         self._reload_from_disk()
+        # Watcher: polea cada 2s mtime de los TOML candidatos
+        GLib.timeout_add_seconds(2, self._poll_external_changes)
 
     # ── carga / save ──
 
@@ -236,9 +240,41 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 self.cfg = userconfig.Config()
         self.dirty = False
         self.save_btn.set_sensitive(False)
+        self._refresh_mtimes()
         self._rebuild_sidebar()
         self._populate_grid()
         self._update_panel()
+
+    def _refresh_mtimes(self):
+        """Captura el mtime actual de los TOML candidatos para que la próxima
+        comparación del watcher no detecte nuestro propio escribir."""
+        for p in (userconfig.DEFAULT_CONFIG_PATH, userconfig.REPO_DEFAULT_PATH):
+            try:
+                self._mtimes[p] = p.stat().st_mtime if p.exists() else 0
+            except OSError:
+                self._mtimes[p] = 0
+
+    def _poll_external_changes(self):
+        """Loop GLib que detecta ediciones del TOML fuera de la GUI."""
+        changed = False
+        for p in (userconfig.DEFAULT_CONFIG_PATH, userconfig.REPO_DEFAULT_PATH):
+            try:
+                m = p.stat().st_mtime if p.exists() else 0
+            except OSError:
+                continue
+            if self._mtimes.get(p, 0) != m:
+                self._mtimes[p] = m
+                changed = True
+        if changed:
+            if self.dirty:
+                self._set_status(
+                    "⚠ TOML cambió fuera de la GUI — guarda o ⟳ para recargar",
+                    error=True)
+            else:
+                self._reload_from_disk()
+                self._set_status("↻ recargado (cambio externo detectado)")
+                GLib.timeout_add_seconds(3, self._clear_status_if_idle)
+        return True  # keep polling
 
     def _on_reload_clicked(self, _btn):
         self._reload_from_disk()
@@ -251,6 +287,9 @@ class ConfigWindow(Gtk.ApplicationWindow):
             return
         self.dirty = False
         self.save_btn.set_sensitive(False)
+        # Actualiza mtime cacheado para no detectar nuestro propio save
+        # como "cambio externo" en el siguiente tick del watcher.
+        self._refresh_mtimes()
         self._set_status(f"✓ Guardado en {target}")
         # Quitar el mensaje a los 3 s
         GLib.timeout_add_seconds(3, self._clear_status_if_idle)
