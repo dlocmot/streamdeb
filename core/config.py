@@ -13,9 +13,6 @@ POLL_HZ      = int(os.environ.get("STREAMDEB_POLL_HZ", "30"))
 DUMMY_MODE   = "--dummy" in sys.argv
 PREVIEW_DIR  = os.environ.get("STREAMDEB_PREVIEW_DIR", "/tmp/streamdeb-preview")
 
-# Texto password root para botón "RO123" (página SIS)
-ROOT_TEXT    = "REDACTED"
-
 # API ESP32 AWAhorro
 API_HOST     = "http://192.168.18.10"   # editar según red
 API_USER     = "StreamDeck"

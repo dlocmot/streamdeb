@@ -1,5 +1,4 @@
 """Plugin KEYS (página 7): atajos de teclado y typed strings."""
-from core.config import ROOT_TEXT
 from core.helpers import _kp
 from core.iconos import buscar_icono as _buscar_icono
 from core.keyboard import enviar_combo, KB_DISPONIBLE, Key, keyboard
@@ -16,7 +15,6 @@ KEYS_PAGINA = {
     13: ("Escrit",  "Super+D",       lambda: _kp(Key.cmd, 'd'),                   "user-desktop"),
     16: ("CopiaT",  "Ctrl+Shift+C",  lambda: _kp(Key.ctrl, Key.shift, 'c'),       "edit-copy"),
     17: ("PegaT",   "Ctrl+Shift+V",  lambda: _kp(Key.ctrl, Key.shift, 'v'),       "edit-paste"),
-    18: ("Root",    "PWD",           lambda: ROOT_TEXT,                           "dialog-password"),
 }
 
 
