@@ -1,96 +1,97 @@
 # streamdeb — Stream Deck dashboards
 
-Dos aplicaciones independientes para Elgato Stream Deck XL, ambas en
-Python sobre Debian:
+Two independent Python applications for the Elgato Stream Deck XL,
+running on Debian:
 
-| App                  | Host                     | Servicio              | Propósito                              |
-|----------------------|--------------------------|-----------------------|----------------------------------------|
-| `dashboard_pro.py`   | PC `dinamo` (Debian)     | `streamdeb` (--user)  | Dashboard general (5 páginas)          |
-| `awa_kiosk.py`       | Raspberry Pi 3 headless  | `awa-kiosk` (system)  | Panel dedicado AWAhorro (página única) |
+| App                  | Host                          | Service                | Purpose                                  |
+|----------------------|-------------------------------|------------------------|------------------------------------------|
+| `dashboard_pro.py`   | PC `dinamo` (Debian)          | `streamdeb` (--user)   | General-purpose dashboard (5 pages)      |
+| `awa_kiosk.py`       | Raspberry Pi 3 (headless)     | `awa-kiosk` (system)   | Dedicated AWAhorro control panel         |
 
-Ambas hablan con el ESP32 **AWAhorro Base** en `192.168.18.10` (control
-de válvula de agua). API documentado en [`API.md`](API.md).
+Both talk to the **AWAhorro Base** ESP32 at `192.168.18.10` (water-valve
+controller). API documented in [`API.md`](API.md).
 
-> `main.py` es el scaffold original del repositorio, no se usa.
+> `main.py` is the original repository scaffold and is not used.
 
 ---
 
-## 1) `dashboard_pro.py` — dashboard PC
+## 1) `dashboard_pro.py` — PC dashboard
 
-Stream Deck XL (32 teclas · 4 filas × 8 columnas · 96×96 px). Servicio
-`systemd --user` que arranca con la sesión gráfica del usuario `jfqp`.
+Stream Deck XL (32 keys · 4 rows × 8 columns · 96×96 px). Runs as a
+`systemd --user` service started with the graphical session of user
+`jfqp`.
 
-### Layout — 5 páginas + nav común
+### Layout — 5 pages + shared nav
 
-Fila 0 (visible en todas las páginas):
+Row 0 (visible on every page):
 
-| Tecla | Botón | Función                                                   |
-|-------|-------|-----------------------------------------------------------|
-| 0     | SIS   | Página 1 — sistema                                        |
-| 1     | AWA   | Página 2 — control AWAhorro                               |
-| 2     | MEDIA | Página 3 — multimedia                                     |
-| 3     | APP   | Página 4 — lanzador de aplicaciones                       |
-| 7     | CONF  | Página 5 — configuración (engranaje)                      |
+| Key | Button | Function                                                    |
+|-----|--------|-------------------------------------------------------------|
+| 0   | SIS    | Page 1 — system                                             |
+| 1   | AWA    | Page 2 — AWAhorro control                                   |
+| 2   | MEDIA  | Page 3 — multimedia                                         |
+| 3   | APP    | Page 4 — application launcher                               |
+| 7   | CONF   | Page 5 — configuration (gear icon)                          |
 
-> La X roja antigua (apagar / dim manual) ya no vive en fila 0; ahora
-> está dentro de la página CONF (tecla 31).
+> The old red X (power off / manual dim) no longer lives in row 0; it
+> now sits inside the CONF page (key 31).
 
-#### Página SIS (default)
-
-```
-Fila 1:  Uptime  Cores   Temp    .      .    .    .    .
-Fila 2:  RAM     SWAP    ROOT   Clima   .    .    .    .
-Fila 3:  Net     Pings   Docker  POMO   .    .    .    .
-```
-
-- **Cores** (tecla 9): título `Cores N%` (CPU total) + 4 barras
-  verticales por core. Tap → subpágina CORES (id 13) con C1-C4 detalle,
-  top 5 procesos CPU y top 5 memoria (en GB).
-- **Temp** (tecla 10): título `Temp N°` (avg de cores) + 4 barras de
-  temperatura. Barra mapea [65..105°C]→0..100% (calibrada para Celeron
-  J4105 fanless). Color: ≤82 verde, 82-92 amarillo, 92-100 ámbar,
-  >100 rojo. Tap → subpágina TEMPS (id 16) con Package + cores + otros
-  sensores (acpitz, wifi).
-- **Net** (tecla 24): 2 barras D/U escaladas al pico observado. Tap →
-  subpágina NET (id 15) con DOWN/UP actual + pico, totales RX/TX,
-  paquetes y errores/drops.
-- **Pings** (tecla 25): 3 barras GW/CF/G coloreadas por latencia relativa.
-  Tap → subpágina PINGS (id 14) con detalle por target (actual / avg /
-  max·min) + IPs pública y local.
-- **Clima** (tecla 19): icono WMO + temp actual + min/max. Tap → página
-  CLIMA (id 11) con banner + meteograma 24h + strip 12h.
-- **POMO** (tecla 27): pomodoro 25/5. Tap corto avanza estado, long-press
-  ≥2s resetea.
-- **Docker** (tecla 26): running/total. Tap → página DOCKER (id 10).
-
-#### Página AWA
+#### SIS page (default)
 
 ```
-Fila 1: Estado  Cuenta  Modo  Aper.  WiFi  Tank  Usuario  Admin
-Fila 2: 1MIN    2MIN    3MIN  4MIN   5MIN   .    .        Ping API
-Fila 3: 15MIN   30MIN   1HORA 2HORAS  .     .    .        CERRAR
+Row 1:  Uptime  Cores   Temp    .      .    .    .    .
+Row 2:  RAM     SWAP    ROOT   Weather .    .    .    .
+Row 3:  Net     Pings   Docker  POMO   .    .    .    .
 ```
 
-- Estado: fondo verde si Abierta · recuadro rojo si Cerrada · gris si OFFLINE.
-- Botones de tiempo: efecto de **vaciado de vaso** (cyan que decrece) en
-  el botón cuya duración coincide con `initial_seconds` del API.
-- `CERRAR` (tecla 31): rojo, envía `{"action":"close"}`.
+- **Cores** (key 9): title `Cores N%` (total CPU) + 4 vertical bars per
+  core. Tap → CORES subpage (id 13) with per-core detail (C1–C4), top 5
+  CPU processes and top 5 memory (GB).
+- **Temp** (key 10): title `Temp N°` (core average) + 4 temperature
+  bars. Bar maps [65..105°C]→0..100% (calibrated for a fanless Celeron
+  J4105). Colors: ≤82 green, 82–92 yellow, 92–100 amber, >100 red.
+  Tap → TEMPS subpage (id 16) with Package + cores + other sensors
+  (acpitz, wifi).
+- **Net** (key 24): 2 D/U bars scaled to the observed peak. Tap → NET
+  subpage (id 15) with current DOWN/UP + peak, total RX/TX, packet
+  counts and errors/drops.
+- **Pings** (key 25): 3 bars (GW/CF/G) colored by relative latency.
+  Tap → PINGS subpage (id 14) with per-target detail (current / avg /
+  max·min) + public and local IPs.
+- **Weather** (key 19): WMO icon + current temp + min/max. Tap →
+  WEATHER page (id 11) with banner + 24h meteogram + 12h strip.
+- **POMO** (key 27): 25/5 pomodoro. Short tap advances state, long-press
+  ≥2s resets.
+- **Docker** (key 26): running/total. Tap → DOCKER page (id 10).
 
-#### Página MEDIA
+#### AWA page
 
 ```
-Fila 1:   .   .   .   .   .   .   .   VOL+
-Fila 2:   .   .   .   .   .   .  PLAY  MUTE
-Fila 3:   .   .   .   .   .   .   .   VOL-
+Row 1: Status  Count  Mode  Open   WiFi  Tank  User    Admin
+Row 2: 1MIN    2MIN   3MIN  4MIN   5MIN   .     .      Ping API
+Row 3: 15MIN   30MIN  1HOUR 2HOURS  .     .     .      CLOSE
 ```
 
-- VOL+/MUTE/VOL− vertical en última columna (15, 23, 31), PLAY tecla 22.
-- Comandos: `pactl set-sink-volume`, `pactl set-sink-mute`, `playerctl play-pause`.
+- Status: green background if Open · red outline if Closed · gray if OFFLINE.
+- Time buttons: **glass-emptying** effect (cyan that decreases) on the
+  button whose duration matches `initial_seconds` from the API.
+- `CLOSE` (key 31): red, sends `{"action":"close"}`.
 
-#### Página APP — lanzador
+#### MEDIA page
 
-Iconos PNG del tema del sistema (hicolor / mate / gnome). Apps actuales
-en `APPS_PAGINA` (`dashboard_pro.py:93`):
+```
+Row 1:   .   .   .   .   .   .   .   VOL+
+Row 2:   .   .   .   .   .   .  PLAY  MUTE
+Row 3:   .   .   .   .   .   .   .   VOL-
+```
+
+- VOL+/MUTE/VOL− stacked in the last column (15, 23, 31), PLAY on key 22.
+- Commands: `pactl set-sink-volume`, `pactl set-sink-mute`, `playerctl play-pause`.
+
+#### APP page — launcher
+
+System theme PNG icons (hicolor / mate / gnome). Current apps in
+`APPS_PAGINA` (`dashboard_pro.py:93`):
 
 - Dev: Term, Arduino, GitHub Desktop
 - Web: Brave, Firefox (firejail)
@@ -100,26 +101,29 @@ en `APPS_PAGINA` (`dashboard_pro.py:93`):
 - Net: Winbox (wine)
 - Util: AnyDesk, SysMon, VirtualBox
 
-#### Página CONF — configuración en vivo
+#### CONF page — live configuration
 
-Ajustes editables sin reiniciar el servicio:
+Settings editable without restarting the service:
 
-- **Brillo** (col 0): +, valor actual %, − (paso 10%, mín 10, máx 100).
-- **Fallback a SIS** (col 1): segundos sin interacción antes de volver
-  a SIS. Rango 60s – 30min, paso 1 min.
-- **Auto-dim** (col 2): segundos sin interacción antes de apagar
-  pantalla. Rango 60s – 2h, paso 1 min.
-- **Perfil Kiosko** (tecla 15, debajo del gear): cambia al servicio
-  `streamdeb-kiosk` (ver sección Perfil switch abajo).
-- **X de apagado** (tecla 31, dim manual).
+- **Brightness** (col 0): +, current %, − (step 10%, min 10, max 100).
+- **SIS fallback** (col 1): seconds without interaction before returning
+  to SIS. Range 60s – 30min, step 1 min.
+- **Auto-dim** (col 2): seconds without interaction before the screen
+  dims. Range 60s – 2h, step 1 min.
+- **Monitor brightness** (col 3): xrandr gamma brightness for the
+  external display. +, current %, −.
+- **Kiosk profile** (key 15, below the gear): switches to the
+  `streamdeb-kiosk` service (see Profile switch below).
+- **Power-off X** (key 31, manual dim).
 
-### Comportamientos transversales
+### Cross-cutting behaviors
 
-- **Auto-fallback a SIS** y **auto-dim** según valores configurados en
-  CONF (no más constantes hardcoded).
-- **Reconexión**: si el deck se desconecta, reintenta cada 2 s y restaura
-  estado al reconectar.
-- **Tema horario**: claro 05:30–22:00, oscuro el resto (override desde CONF).
+- **Auto-fallback to SIS** and **auto-dim** using the values configured
+  in CONF (no more hardcoded constants).
+- **Reconnect**: if the deck disconnects, it retries every 2 s and
+  restores state on reconnect.
+- **Time-based theme**: light 05:30–22:00, dark otherwise (override
+  available from CONF).
 
 ### Setup
 
@@ -130,91 +134,91 @@ python3 -m venv .venv
 
 sudo cp udev/50-streamdeck.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
-# desconecta y reconecta el deck
+# unplug and reconnect the deck
 
 systemctl --user daemon-reload
 systemctl --user enable --now streamdeb.service
 
-# opcional: que siga corriendo sin sesión gráfica
+# optional: keep it running without a graphical session
 sudo loginctl enable-linger jfqp
 ```
 
-### Operación
+### Operation
 
 ```bash
 systemctl --user status  streamdeb
-systemctl --user restart streamdeb       # tras editar dashboard_pro.py
+systemctl --user restart streamdeb       # after editing dashboard_pro.py
 journalctl --user -u streamdeb -f
 ```
 
-### Perfil switch (main ↔ kiosko en dinamo)
+### Profile switch (main ↔ kiosk on dinamo)
 
-En dinamo el deck puede correr `awa_kiosk.py` como perfil temporal
-sin necesidad de la Pi:
+On dinamo the deck can run `awa_kiosk.py` as a temporary profile
+without needing the Pi:
 
-- Servicio paralelo `streamdeb-kiosk.service` en
-  `~/.config/systemd/user/` (versionado en `systemd/`).
-- Helper `bin/switch-profile.sh {main|kiosk}` que hace el swap atómico:
-  lanza el `start` del nuevo servicio como **transient unit**
-  (`systemd-run --user`) para que sobreviva al `stop` del actual
-  (cuyo cgroup-kill mata todo). Espera 1.5s antes del start para que
-  el deck USB se libere.
-- Botón en CONF de cada app:
-  - main: tecla **15** "Perfil Kiosko" (col 7 fila 1, debajo del gear).
-  - kiosko: tecla **11** "Perfil Main" (sólo aparece si existe el
-    helper, así no se renderiza en la Pi).
-- Ambas apps atrapan SIGTERM para cerrar el deck limpio en `finally`.
+- Parallel service `streamdeb-kiosk.service` under
+  `~/.config/systemd/user/` (versioned in `systemd/`).
+- Helper `bin/switch-profile.sh {main|kiosk}` performs the atomic swap:
+  it launches the `start` of the new service as a **transient unit**
+  (`systemd-run --user`) so that it survives the `stop` of the current
+  one (whose cgroup-kill takes everything down). Waits 1.5s before
+  starting so the USB deck is released.
+- Button in CONF on each app:
+  - main: key **15** "Kiosk profile" (col 7 row 1, below the gear).
+  - kiosk: key **11** "Main profile" (only shown if the helper exists,
+    so it is not rendered on the Pi).
+- Both apps trap SIGTERM to close the deck cleanly inside `finally`.
 
-Setup del servicio kiosko en dinamo:
+Set up the kiosk service on dinamo:
 ```bash
 cp systemd/streamdeb-kiosk.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-# no se hace `enable` — sólo se lanza vía el botón
+# no `enable` — it is only launched through the button
 ```
 
 ---
 
-## 2) `awa_kiosk.py` — kiosko Raspberry Pi
+## 2) `awa_kiosk.py` — Raspberry Pi kiosk
 
-Stream Deck XL en **Raspberry Pi 3 headless**. La Pi no tiene monitor;
-el deck es la única interfaz. Dedicado a control de AWAhorro.
+Stream Deck XL on a **headless Raspberry Pi 3**. The Pi has no monitor;
+the deck is the only interface. Dedicated to AWAhorro control.
 
 - OS: Raspberry Pi OS Lite 64-bit (Debian 13 trixie).
-- Hostname: `awa`. Usuario: `jfqp` (en grupo `plugdev`).
-- Servicio **system** (no user): `/etc/systemd/system/awa-kiosk.service`.
-- Código en `/opt/streamdeb/`, venv en `/opt/streamdeb/.venv/`.
+- Hostname: `awa`. User: `jfqp` (in the `plugdev` group).
+- **System** service (not user): `/etc/systemd/system/awa-kiosk.service`.
+- Code at `/opt/streamdeb/`, venv at `/opt/streamdeb/.venv/`.
 
-### Layout (página única + CONF)
+### Layout (single page + CONF)
 
 ```
-Página AWA (default):
-  Fila 0:  Ext   Ambas Tanque Inten Mix   Eco   Ráp   Pre        ← modos + lavaplatos
-  Fila 1:  Estado Cuenta Modo  Aper. WiFi  Tank  Usuario Admin   ← estado API
-  Fila 2:  1MIN  2MIN  3MIN  4MIN  5MIN   .     .     PingAPI
-  Fila 3:  15MIN 30MIN 1HORA 2HORAS .     .    CONF    CERRAR
+AWA page (default):
+  Row 0:  Ext   Both  Tank  Inten Mix   Eco   Fast  Pre        ← modes + dishwasher
+  Row 1:  Status Count Mode  Open  WiFi  Tank  User   Admin    ← API state
+  Row 2:  1MIN  2MIN  3MIN  4MIN  5MIN   .     .     PingAPI
+  Row 3:  15MIN 30MIN 1HOUR 2HOURS .     .    CONF    CLOSE
 
-Página CONF:
-  Fila 1:  Brillo+ Dim+  .    [Main]  .    .    .    Tema diurno
-  Fila 2:  Brillo% Dim%  .    .       .    .    .    .
-  Fila 3:  Brillo− Dim−  .    .       .    .    AWA  X (apagado)
+CONF page:
+  Row 1:  Bright+ Dim+  .    [Main]  .    .    .    Daytime theme
+  Row 2:  Bright% Dim%  .    .       .    .    .    .
+  Row 3:  Bright− Dim−  .    .       .    .    AWA  X (power off)
 ```
 
-`[Main]` (tecla 11) sólo se renderiza en dinamo (vuelve al perfil
-main). En la Pi no aparece.
+`[Main]` (key 11) only renders on dinamo (returns to the main
+profile). It does not appear on the Pi.
 
-**Comportamientos:**
+**Behaviors:**
 
-- **Brillo** y **Dim** funcionan en ambos temas (claro/oscuro).
-- **Auto-redim 2s en dark**: tras pulsar apertura o CERRAR en tema
-  oscuro, el deck atenúa a 0 al cabo de 2s (kiosko silencioso de
-  noche). Cualquier toque despierta.
-- **Ping al deck durante dim**: cada 1s un `set_brightness(0)`
-  ping para detectar desconexiones USB sin notar.
-- **CERRAR drained**: en light, sólo outline cuando ya está cerrada;
-  rojo sólido cuando hay apertura activa. En dark, gris tenue cuando
-  cerrada, rojo cuando abierta.
+- **Brightness** and **Dim** work in both themes (light/dark).
+- **Auto-redim 2s in dark**: after pressing an opening button or CLOSE
+  while in the dark theme, the deck dims to 0 after 2s (silent kiosk
+  at night). Any touch wakes it up.
+- **Deck ping while dimmed**: every 1s a `set_brightness(0)` ping
+  detects USB drop-outs that would otherwise go unnoticed.
+- **CLOSE drained**: in light theme, outline only when already closed;
+  solid red when an opening is active. In dark theme, faint gray when
+  closed, red when open.
 
-### Configuración (env vars en el .service)
+### Configuration (env vars in the .service)
 
 ```
 STREAMDEB_API_HOST   (default http://192.168.18.10)
@@ -223,39 +227,39 @@ STREAMDEB_BRILLO     (default 75)
 STREAMDEB_DIM        (default 1800)
 ```
 
-### Aviso de hardware
+### Hardware notice
 
-La Stream Deck XL consume ~500 mA por USB. La Pi 3 con fuente débil
-genera **subvoltaje** (visible como `Undervoltage detected!` en
-`dmesg`) y el deck se re-enumera en bucle. Soluciones:
+The Stream Deck XL draws ~500 mA over USB. A Pi 3 with a weak power
+supply experiences **undervoltage** (visible as `Undervoltage detected!`
+in `dmesg`) and the deck re-enumerates in a loop. Fixes:
 
-1. Fuente oficial Pi 5V 2.5A (o 5.1V 3A).
-2. Hub USB con alimentación propia entre Pi y deck (recomendado).
+1. Official Pi 5V 2.5A power supply (or 5.1V 3A).
+2. Self-powered USB hub between the Pi and the deck (recommended).
 
-### Provisión de la Pi (rápida, desde dinamo)
+### Provisioning the Pi (quick, from dinamo)
 
 ```bash
-# 1) instalar deps
+# 1) install deps
 ssh jfqp@<pi> 'sudo apt install -y python3-venv libhidapi-libusb0 \
     libusb-1.0-0 libjpeg-dev zlib1g-dev libfreetype-dev rsync tzdata'
 
-# 2) sincronizar repo a /opt/streamdeb
+# 2) sync the repo to /opt/streamdeb
 ssh jfqp@<pi> 'sudo mkdir -p /opt/streamdeb && sudo chown jfqp:jfqp /opt/streamdeb'
 rsync -az --exclude='.venv' --exclude='.git' --exclude='__pycache__' \
     ./ jfqp@<pi>:/opt/streamdeb/
 
-# 3) venv + deps Python
+# 3) venv + Python deps
 ssh jfqp@<pi> 'cd /opt/streamdeb && python3 -m venv .venv && \
     .venv/bin/pip install -r requirements.txt'
 
-# 4) udev + servicio (en awa-kiosk.service usar User=jfqp)
+# 4) udev + service (use User=jfqp inside awa-kiosk.service)
 ssh jfqp@<pi> 'sudo cp /opt/streamdeb/udev/50-streamdeck.rules /etc/udev/rules.d/ && \
     sudo udevadm control --reload-rules && sudo udevadm trigger'
 ssh jfqp@<pi> 'sudo cp /opt/streamdeb/systemd/awa-kiosk.service /etc/systemd/system/ && \
     sudo systemctl daemon-reload && sudo systemctl enable --now awa-kiosk'
 ```
 
-### Operación
+### Operation
 
 ```bash
 ssh jfqp@<pi> 'sudo journalctl -u awa-kiosk -f'
@@ -264,22 +268,22 @@ ssh jfqp@<pi> 'sudo systemctl restart awa-kiosk'
 
 ---
 
-## Estructura
+## Layout
 
 ```
 streamdeb/
-├── dashboard_pro.py                 # app PC dinamo (5 páginas)
-├── awa_kiosk.py                     # app kiosko (Pi y perfil dinamo)
-├── main.py                          # scaffold original (no usado)
-├── API.md                           # API ESP32 AWAhorro
+├── dashboard_pro.py                 # PC dinamo app (5 pages)
+├── awa_kiosk.py                     # kiosk app (Pi and dinamo profile)
+├── main.py                          # original scaffold (unused)
+├── API.md                           # AWAhorro ESP32 API
 ├── requirements.txt                 # streamdeck, Pillow
-├── bin/switch-profile.sh            # swap main↔kiosko en dinamo
-├── udev/50-streamdeck.rules         # acceso USB sin root (plugdev)
-├── systemd/awa-kiosk.service        # servicio system para la Pi
-├── systemd/streamdeb-kiosk.service  # servicio user kiosko en dinamo
-└── .venv/                           # virtualenv local (solo dinamo)
+├── bin/switch-profile.sh            # main↔kiosk swap on dinamo
+├── udev/50-streamdeck.rules         # USB access without root (plugdev)
+├── systemd/awa-kiosk.service        # system service for the Pi
+├── systemd/streamdeb-kiosk.service  # user kiosk service on dinamo
+└── .venv/                           # local virtualenv (dinamo only)
 ```
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).
