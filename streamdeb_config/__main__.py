@@ -194,6 +194,10 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self._cells: dict[int, Gtk.Button] = {}
         # mtime de los paths TOML — el watcher polea y refresca cuando cambia
         self._mtimes: dict = {}
+        # Follow-deck: si True, la GUI salta a la página activa del deck.
+        # Se apaga al clickear una página en la sidebar (manual override) y
+        # se vuelve a encender con el botón 📺 del header.
+        self._follow_deck = True
 
         # ── HeaderBar ──
         header = Gtk.HeaderBar()
@@ -208,6 +212,15 @@ class ConfigWindow(Gtk.ApplicationWindow):
             "Re-leer config.toml desde disco (descarta cambios sin guardar)")
         self.reload_btn.connect("clicked", self._on_reload_clicked)
         header.pack_end(self.reload_btn)
+        # Toggle follow-deck: cuando está apagado, la GUI no salta a la
+        # página del deck (útil mientras editas algo y no quieres que te
+        # tire a SIS cuando alguien toca el deck).
+        self.follow_btn = Gtk.ToggleButton(label="📺")
+        self.follow_btn.set_tooltip_text(
+            "Seguir la página activa del Stream Deck")
+        self.follow_btn.set_active(True)
+        self.follow_btn.connect("toggled", self._on_follow_toggled)
+        header.pack_end(self.follow_btn)
         self.status_label = Gtk.Label()
         header.pack_start(self.status_label)
 
@@ -334,17 +347,18 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 GLib.timeout_add_seconds(3, self._clear_status_if_idle)
             return True
 
-        # Follow deck: si el deck cambió de página a una de las editables
-        # y la GUI no tiene cambios sin guardar, seguimos.
-        deck_page_name = self._read_deck_page()
-        if (deck_page_name is not None
-                and deck_page_name != self.current_page
-                and not self.dirty):
-            self.current_page = deck_page_name
-            self.selected_key = None
-            self._rebuild_sidebar()
-            self._populate_grid()
-            self._update_panel()
+        # Follow deck: si el deck cambió de página y el toggle de follow
+        # está activo y no hay edits sin guardar, salta a esa página.
+        if self._follow_deck:
+            deck_page_name = self._read_deck_page()
+            if (deck_page_name is not None
+                    and deck_page_name != self.current_page
+                    and not self.dirty):
+                self.current_page = deck_page_name
+                self.selected_key = None
+                self._rebuild_sidebar()
+                self._populate_grid()
+                self._update_panel()
 
         # Mirror del deck por TILE: en vez de rebuild del grid entero,
         # solo se actualiza la imagen de las celdas cuyo mtime cambió.
@@ -483,8 +497,26 @@ class ConfigWindow(Gtk.ApplicationWindow):
         if name and name != self.current_page:
             self.current_page = name
             self.selected_key = None
+            # Click manual en la sidebar = el usuario quiere mirar otra
+            # cosa que la activa del deck. Apagamos follow para no saltar
+            # de vuelta cada 150 ms.
+            if self._follow_deck:
+                self._follow_deck = False
+                self.follow_btn.set_active(False)
             self._populate_grid()
             self._update_panel()
+
+    def _on_follow_toggled(self, btn):
+        self._follow_deck = btn.get_active()
+        if self._follow_deck:
+            # Re-engage: salta inmediatamente a la página del deck
+            deck_page = self._read_deck_page()
+            if deck_page and deck_page != self.current_page and not self.dirty:
+                self.current_page = deck_page
+                self.selected_key = None
+                self._rebuild_sidebar()
+                self._populate_grid()
+                self._update_panel()
 
     # ── grid 8×4 ──
 
