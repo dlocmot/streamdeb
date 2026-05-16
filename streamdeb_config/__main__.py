@@ -59,6 +59,20 @@ _nav_cache: dict[str, dict] = {"app": {}, "keys": {}, "vent": {}, "ctx": {}}
 # Necesario para localizar los tile PNGs en vivo que escribe streamdeb.
 PAGE_IDS: dict[str, int] = {"apps": 4, "web": 6, "keys": 7, "vent": 8}
 
+# Mapping GUI page_name → tecla nav que la activa en el deck. Clickear
+# en la sidebar manda el press equivalente para que el deck siga al GUI.
+# WEB (6) no tiene nav directo — entra desde CTX en browsers; lo dejamos
+# fuera (sidebar click cambia solo la vista).
+NAV_KEY_FOR_PAGE: dict[str, int] = {
+    "apps":    3,   # APP nav
+    "keys":    6,   # KEYS nav
+    "vent":    7,   # VENT nav
+    "view_1":  0,   # SIS
+    "view_2":  1,   # AWA
+    "view_3":  2,   # MEDIA
+    "view_12": 4,   # CTX
+}
+
 # Páginas no editables (view-only) — solo aparecen cuando el deck las
 # ha visitado al menos una vez. id deck → label sidebar.
 VIEW_ONLY_PAGES: dict[int, str] = {
@@ -497,12 +511,18 @@ class ConfigWindow(Gtk.ApplicationWindow):
         if name and name != self.current_page:
             self.current_page = name
             self.selected_key = None
-            # Click manual en la sidebar = el usuario quiere mirar otra
-            # cosa que la activa del deck. Apagamos follow para no saltar
-            # de vuelta cada 150 ms.
-            if self._follow_deck:
-                self._follow_deck = False
-                self.follow_btn.set_active(False)
+            # Bidirectional: click en sidebar → press la nav equivalente
+            # en el deck si existe. El deck cambiará a esa página y el
+            # follow lo verá automáticamente en sync.
+            nav_k = NAV_KEY_FOR_PAGE.get(name)
+            if nav_k is not None:
+                self._send_press_to_deck(nav_k)
+            else:
+                # Sin nav directa (WEB, etc): apagamos follow para evitar
+                # el bounce back inmediato.
+                if self._follow_deck:
+                    self._follow_deck = False
+                    self.follow_btn.set_active(False)
             self._populate_grid()
             self._update_panel()
 
