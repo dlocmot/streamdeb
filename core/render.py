@@ -7,16 +7,43 @@ codo (curva de cuarto de stadium concéntrico) vive sólo en el tile (0,0).
 Los tiles internos no llevan chrome global — sólo el contenido del widget.
 """
 import math
+import os
 from PIL import Image, ImageDraw, ImageFont
 from StreamDeck.ImageHelpers import PILHelper
 
 from . import wallpaper as wp
-from .config import FONT_PATH
+from .config import FONT_PATH, PREVIEW_DIR
 
 
 _finalizar_cache = {}        # (id(pil)|0, wallpaper_idx, tecla) → bytes JPEG
 _FINALIZAR_CACHE_MAX = 512   # cap defensivo: si crece (PILs dinámicos) se vacía entera
 _last_sent = {}              # tecla → bytes (dedup USB writes)
+
+# --- Live preview (mirror para la GUI configuradora) ------------------
+# Cada vez que un tile se compone, se guarda como PNG en
+# $STREAMDEB_PREVIEW_DIR/page_<id>/tile_<key>.png. La GUI lo lee y
+# refleja exactamente lo que el deck muestra. Una sola escritura por
+# tile redibujado, controlado por env var (default ON, set =0 para apagar).
+_LIVE_PREVIEW = os.environ.get("STREAMDEB_LIVE_PREVIEW", "1") != "0"
+_current_page_id = 0  # lo wirea dashboard_pro con set_current_page()
+
+
+def set_current_page(page_id: int):
+    """Wirea desde dashboard cuando cambia pagina_actual, para que
+    _finalizar sepa en qué subdir guardar los tiles."""
+    global _current_page_id
+    _current_page_id = page_id
+
+
+def _dump_tile_preview(tecla: int, fondo: Image.Image):
+    if not _LIVE_PREVIEW or _current_page_id == 0:
+        return
+    try:
+        page_dir = os.path.join(PREVIEW_DIR, f"page_{_current_page_id}")
+        os.makedirs(page_dir, exist_ok=True)
+        fondo.save(os.path.join(page_dir, f"tile_{tecla}.png"))
+    except Exception:
+        pass  # nunca debe tumbar el render
 
 # --- Config LCARS global (wirea desde dashboard) ----------------------
 _lcars_cfg = {
@@ -172,6 +199,7 @@ def finalizar(deck, tamaño, imagen_rgba, tecla):
     # pero las bezels físicas del Stream Deck rompen la ilusión — cada tile
     # se ve separado. Mantenemos `set_lcars_config` sólo para invalidar
     # cache al cambiar perfil; el look LCARS lo dibuja cada widget per-tile.
+    _dump_tile_preview(tecla, fondo)
     nb = PILHelper.to_native_format(deck, fondo)
     if cache_key is not None:
         if len(_finalizar_cache) >= _FINALIZAR_CACHE_MAX:

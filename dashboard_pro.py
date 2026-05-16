@@ -1051,6 +1051,9 @@ def iniciar_dashboard():
                             # Cambio de página: descarta el dedup (mismo tecla
                             # con contenido distinto fuerza redraw real).
                             render_core._last_sent.clear()
+                            # Live preview: el GUI configurador mirror lo que
+                            # se está dibujando, necesita el id correcto.
+                            render_core.set_current_page(pagina_actual)
                         for k in range(deck.key_count()):
                             if k not in imgs:
                                 _push_key(deck, k, _finalizar(deck, tam, None, k))

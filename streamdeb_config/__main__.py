@@ -55,6 +55,21 @@ _NAV_KEYS_ICONS = (
 )
 _nav_cache: dict[str, dict] = {"app": {}, "keys": {}, "vent": {}, "ctx": {}}
 
+# Mapping de los nombres internos del GUI → page_id del deck.
+# Necesario para localizar los tile PNGs en vivo que escribe streamdeb.
+PAGE_IDS: dict[str, int] = {"apps": 4, "web": 6, "keys": 7, "vent": 8}
+
+_PREVIEW_ROOT = Path("/tmp/streamdeb-preview")
+
+
+def _live_tile_path(page_name: str, key: int) -> Path | None:
+    """Devuelve el path al PNG en vivo del tile, o None si no existe."""
+    page_id = PAGE_IDS.get(page_name)
+    if page_id is None:
+        return None
+    p = _PREVIEW_ROOT / f"page_{page_id}" / f"tile_{key}.png"
+    return p if p.exists() else None
+
 
 # ─────────────────────── thumbnails ───────────────────────
 
@@ -255,8 +270,10 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 self._mtimes[p] = 0
 
     def _poll_external_changes(self):
-        """Loop GLib que detecta ediciones del TOML fuera de la GUI."""
-        changed = False
+        """Loop GLib que detecta:
+        1. ediciones del TOML fuera de la GUI → recarga config + grid
+        2. cambios en los tile PNGs del deck → repaint grid (mirror vivo)"""
+        toml_changed = False
         for p in (userconfig.DEFAULT_CONFIG_PATH, userconfig.REPO_DEFAULT_PATH):
             try:
                 m = p.stat().st_mtime if p.exists() else 0
@@ -264,8 +281,8 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 continue
             if self._mtimes.get(p, 0) != m:
                 self._mtimes[p] = m
-                changed = True
-        if changed:
+                toml_changed = True
+        if toml_changed:
             if self.dirty:
                 self._set_status(
                     "⚠ TOML cambió fuera de la GUI — guarda o ⟳ para recargar",
@@ -274,6 +291,21 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 self._reload_from_disk()
                 self._set_status("↻ recargado (cambio externo detectado)")
                 GLib.timeout_add_seconds(3, self._clear_status_if_idle)
+            return True
+
+        # Mirror del deck: si los tiles de la página actual cambiaron
+        # (deck redibujó), repintamos el grid sin tocar el TOML cacheado.
+        page_id = PAGE_IDS.get(self.current_page)
+        if page_id is not None:
+            page_dir = _PREVIEW_ROOT / f"page_{page_id}"
+            try:
+                m = page_dir.stat().st_mtime if page_dir.exists() else 0
+            except OSError:
+                m = 0
+            key = ("tiles", self.current_page)
+            if self._mtimes.get(key, 0) != m and m > 0:
+                self._mtimes[key] = m
+                self._populate_grid()
         return True  # keep polling
 
     def _on_reload_clicked(self, _btn):
@@ -390,8 +422,15 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 cell.add_css_class("suggested-action")
             return cell
         if btn is not None:
+            # Mirror live: si streamdeb ya dibujó esta tecla en esta página,
+            # mostramos su PNG real (refleja lo que el deck enseña). Si no,
+            # fallback a render local desde el TOML.
+            live = _live_tile_path(self.current_page, k)
             try:
-                img = render_button(self.current_page, btn)
+                if live is not None:
+                    img = Image.open(live).convert("RGBA")
+                else:
+                    img = render_button(self.current_page, btn)
                 tex = _pil_to_texture(img)
                 pic = Gtk.Picture.new_for_paintable(tex)
                 pic.set_can_shrink(True)
