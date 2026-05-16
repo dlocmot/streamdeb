@@ -59,6 +59,14 @@ _nav_cache: dict[str, dict] = {"app": {}, "keys": {}, "vent": {}, "ctx": {}}
 # Necesario para localizar los tile PNGs en vivo que escribe streamdeb.
 PAGE_IDS: dict[str, int] = {"apps": 4, "web": 6, "keys": 7, "vent": 8}
 
+# Páginas no editables (view-only) — solo aparecen cuando el deck las
+# ha visitado al menos una vez. id deck → label sidebar.
+VIEW_ONLY_PAGES: dict[int, str] = {
+    1: "SIS",    2: "AWA",    3: "MEDIA",  5: "CONF",
+    10: "DOCKER", 11: "CLIMA", 12: "CTX",
+    13: "CORES", 14: "PINGS", 15: "NET", 16: "TEMPS",
+}
+
 _PREVIEW_ROOT = Path("/tmp/streamdeb-preview")
 _CURRENT_PAGE_FILE = _PREVIEW_ROOT / "current_page"
 
@@ -66,9 +74,21 @@ _CURRENT_PAGE_FILE = _PREVIEW_ROOT / "current_page"
 PAGE_ID_TO_NAME = {4: "apps", 6: "web", 7: "keys", 8: "vent"}
 
 
+def _page_id_for(page_name: str) -> int | None:
+    """page_name puede ser editable ('apps' etc) o 'view_<id>' para no editable."""
+    if page_name in PAGE_IDS:
+        return PAGE_IDS[page_name]
+    if page_name.startswith("view_"):
+        try:
+            return int(page_name[5:])
+        except ValueError:
+            return None
+    return None
+
+
 def _live_tile_path(page_name: str, key: int) -> Path | None:
     """Devuelve el path al PNG en vivo del tile, o None si no existe."""
-    page_id = PAGE_IDS.get(page_name)
+    page_id = _page_id_for(page_name)
     if page_id is None:
         return None
     p = _PREVIEW_ROOT / f"page_{page_id}" / f"tile_{key}.png"
@@ -265,17 +285,19 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self._update_panel()
 
     def _read_deck_page(self) -> str | None:
-        """Lee `current_page` que escribe streamdeb. Devuelve el nombre
-        de la página editable equivalente, o None si está en una no
-        editable (SIS, AWA, MEDIA, etc.) o no existe el archivo aún."""
+        """Lee `current_page` que escribe streamdeb. Devuelve el GUI name
+        — editable ('apps') o view-only ('view_<id>')."""
         try:
             if not _CURRENT_PAGE_FILE.exists():
                 return None
-            text = _CURRENT_PAGE_FILE.read_text().strip()
-            page_id = int(text)
+            page_id = int(_CURRENT_PAGE_FILE.read_text().strip())
         except Exception:
             return None
-        return PAGE_ID_TO_NAME.get(page_id)
+        if page_id in PAGE_ID_TO_NAME:
+            return PAGE_ID_TO_NAME[page_id]
+        if page_id in VIEW_ONLY_PAGES:
+            return f"view_{page_id}"
+        return None
 
     def _refresh_mtimes(self):
         """Captura el mtime actual de los TOML candidatos para que la próxima
@@ -391,6 +413,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self.sidebar.remove(child)
             child = self.sidebar.get_first_child()
         selected_row = None
+        # 4 páginas editables siempre
         for name, page in (
             ("apps", self.cfg.apps), ("web", self.cfg.web),
             ("keys", self.cfg.keys), ("vent", self.cfg.vent),
@@ -403,6 +426,24 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 margin_top=10, margin_bottom=10,
                 margin_start=18, margin_end=18,
             )
+            row.set_child(lbl)
+            self.sidebar.append(row)
+            if name == self.current_page:
+                selected_row = row
+        # View-only: páginas que el deck ha visitado (existe page_X/)
+        for pid, label in VIEW_ONLY_PAGES.items():
+            if not (_PREVIEW_ROOT / f"page_{pid}").exists():
+                continue
+            name = f"view_{pid}"
+            row = Gtk.ListBoxRow()
+            row.page_name = name  # type: ignore[attr-defined]
+            lbl = Gtk.Label(
+                label=f"{label}   (view)",
+                xalign=0,
+                margin_top=10, margin_bottom=10,
+                margin_start=18, margin_end=18,
+            )
+            lbl.add_css_class("dim-label")
             row.set_child(lbl)
             self.sidebar.append(row)
             if name == self.current_page:
@@ -432,9 +473,15 @@ class ConfigWindow(Gtk.ApplicationWindow):
             child = self.grid.get_first_child()
         self._cells.clear()
 
-        page = getattr(self.cfg, self.current_page)
-        self.page_title.set_text(page.display_name)
-        by_key = {b.key: b for b in page.buttons}
+        if self.current_page.startswith("view_"):
+            pid = int(self.current_page[5:])
+            self.page_title.set_text(
+                f"{VIEW_ONLY_PAGES.get(pid, '?')} (view-only — sin TOML)")
+            by_key = {}
+        else:
+            page = getattr(self.cfg, self.current_page)
+            self.page_title.set_text(page.display_name)
+            by_key = {b.key: b for b in page.buttons}
 
         for k in range(32):
             col = k % 8
@@ -539,6 +586,18 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self.panel_empty.set_visible(True)
             return
         self.panel_empty.set_visible(False)
+
+        # View-only page: solo mostrar mensaje, no editable
+        if self.current_page.startswith("view_"):
+            pid = int(self.current_page[5:])
+            note = Gtk.Label(
+                label=f"Página '{VIEW_ONLY_PAGES.get(pid, pid)}' es view-only.\n"
+                      f"Su contenido lo genera streamdeb en runtime (widgets "
+                      f"dinámicos) y no se almacena en TOML.",
+                xalign=0, wrap=True, max_width_chars=34)
+            note.add_css_class("dim-label")
+            self.panel_grid.attach(note, 0, 0, 2, 1)
+            return
 
         page = getattr(self.cfg, self.current_page)
         by_key = {b.key: b for b in page.buttons}
