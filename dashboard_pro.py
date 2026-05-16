@@ -33,7 +33,7 @@ from core.config import (
     TIEMPO_PASO, TIEMPO_FALLBACK_MIN, TIEMPO_FALLBACK_MAX,
     TIEMPO_DIM_MIN, TIEMPO_DIM_MAX, LONGPRESS_S,
     WALLPAPER_BRILLO, WALLPAPER_SATURACION,
-    ROOT_TEXT, API_HOST, API_USER, API_IP,
+    API_HOST, API_USER, API_IP,
 )
 from core.helpers import (
     _env_sesion, _run, _lanzar, _kp, _fmt_tiempo, _ip_2_lineas,
@@ -145,16 +145,26 @@ def _detectar_monitor_output():
 _monitor_output = _detectar_monitor_output()
 if _monitor_output:
     print(f"[MONITOR] output detectado: {_monitor_output}", flush=True)
+else:
+    print("[MONITOR] sin output al arrancar, se reintentará en uso", flush=True)
 
 def _monitor_aplicar():
     """Aplica monitor_brillo% como xrandr --brightness 0.X al output activo."""
+    global _monitor_output
     if not _monitor_output:
-        return
+        _monitor_output = _detectar_monitor_output()
+        if _monitor_output:
+            print(f"[MONITOR] output detectado (lazy): {_monitor_output}", flush=True)
+        else:
+            print("[MONITOR] aún sin output activo (xrandr falla)", flush=True)
+            return
     val = max(MONITOR_BRILLO_MIN, min(MONITOR_BRILLO_MAX, monitor_brillo)) / 100.0
     try:
-        subprocess.run(["xrandr", "--output", _monitor_output, "--brightness", f"{val:.2f}"],
-                        timeout=2, env=_env_sesion(),
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        r = subprocess.run(["xrandr", "--output", _monitor_output, "--brightness", f"{val:.2f}"],
+                            timeout=2, env=_env_sesion(),
+                            capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"[MONITOR] xrandr rc={r.returncode}: {r.stderr.strip()}", flush=True)
     except Exception as e:
         print(f"[MONITOR] error aplicando brillo: {e}", flush=True)
 

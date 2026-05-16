@@ -7,12 +7,16 @@ from .config import FONT_PATH
 
 
 def _env_sesion():
-    """Entorno con DISPLAY/DBUS/XDG para que subprocess hereden el contexto."""
+    """Entorno con DISPLAY/DBUS/XDG/XAUTHORITY para que subprocess hereden el contexto."""
     uid = os.getuid()
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR",          f"/run/user/{uid}")
     env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
     env.setdefault("DISPLAY", ":0")
+    if "XAUTHORITY" not in env:
+        xauth = os.path.expanduser("~/.Xauthority")
+        if os.path.exists(xauth):
+            env["XAUTHORITY"] = xauth
     return env
 
 
