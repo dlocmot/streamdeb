@@ -223,7 +223,8 @@ def tareas_press_inject(deck):
     igual que un toque físico, y luego borra el archivo. Sin file → no-op."""
     path = os.path.join(PREVIEW_DIR, "press_queue")
     while True:
-        time.sleep(0.1)
+        # 30 ms — round-trip GUI→deck queda en <100 ms incluyendo redraw
+        time.sleep(0.03)
         try:
             if not os.path.exists(path):
                 continue

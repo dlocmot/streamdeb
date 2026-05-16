@@ -264,9 +264,10 @@ class ConfigWindow(Gtk.ApplicationWindow):
         body.append(scroller)
 
         self._reload_from_disk()
-        # Watcher: polea cada 500 ms para que el mirror del deck se sienta
-        # en vivo (clock SIS, cuenta AWA, etc). 32 stat() por tick es barato.
-        GLib.timeout_add(500, self._poll_external_changes)
+        # Watcher: 150 ms polling — mirror se siente en vivo. Cada tick
+        # son 32 stat() + diff por-tile; solo se repintan las celdas cuyo
+        # mtime cambió (no un rebuild del grid entero).
+        GLib.timeout_add(150, self._poll_external_changes)
 
     # ── carga / save ──
 
@@ -345,32 +346,46 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self._populate_grid()
             self._update_panel()
 
-        # Mirror del deck: si los tiles de la página actual cambiaron
-        # (deck redibujó), repintamos el grid sin tocar el TOML cacheado.
-        # NOTE: mtime de un directorio no cambia al sobrescribir archivos
-        # in-place en ext4, así que necesitamos escanear los PNG.
-        page_id = PAGE_IDS.get(self.current_page)
+        # Mirror del deck por TILE: en vez de rebuild del grid entero,
+        # solo se actualiza la imagen de las celdas cuyo mtime cambió.
+        page_id = _page_id_for(self.current_page)
         if page_id is not None:
             page_dir = _PREVIEW_ROOT / f"page_{page_id}"
-            latest = 0.0
             if page_dir.exists():
-                try:
-                    for f in page_dir.iterdir():
-                        if f.suffix != ".png":
-                            continue
-                        try:
-                            m = f.stat().st_mtime
-                            if m > latest:
-                                latest = m
-                        except OSError:
-                            pass
-                except OSError:
-                    pass
-            key = ("tiles", self.current_page)
-            if latest > 0 and self._mtimes.get(key, 0) != latest:
-                self._mtimes[key] = latest
-                self._populate_grid()
+                for k in range(32):
+                    f = page_dir / f"tile_{k}.png"
+                    if not f.exists():
+                        continue
+                    try:
+                        m = f.stat().st_mtime
+                    except OSError:
+                        continue
+                    cache_key = ("tile", self.current_page, k)
+                    if self._mtimes.get(cache_key, 0) != m:
+                        self._mtimes[cache_key] = m
+                        self._swap_tile_paintable(k, f)
         return True  # keep polling
+
+    def _swap_tile_paintable(self, k: int, png_path: Path):
+        """Reemplaza solo el Gtk.Picture/paintable del Gtk.Button existente
+        (no recrea el widget) → mucho más barato que _populate_grid()."""
+        cell = self._cells.get(k)
+        if cell is None:
+            return
+        try:
+            img = Image.open(png_path).convert("RGBA")
+            tex = _pil_to_texture(img)
+        except Exception:
+            return
+        child = cell.get_child()
+        if isinstance(child, Gtk.Picture):
+            child.set_paintable(tex)
+        else:
+            # Antes era Label vacío (slot dim); ahora hay tile real.
+            pic = Gtk.Picture.new_for_paintable(tex)
+            pic.set_can_shrink(True)
+            pic.set_size_request(DISPLAY_PX, DISPLAY_PX)
+            cell.set_child(pic)
 
     def _on_reload_clicked(self, _btn):
         self._reload_from_disk()
