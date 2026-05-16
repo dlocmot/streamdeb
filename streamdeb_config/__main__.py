@@ -20,7 +20,7 @@ from gi.repository import Gtk, GLib, Gdk, GdkPixbuf            # noqa: E402
 from PIL import Image                                           # noqa: E402
 
 from plugins import userconfig                                  # noqa: E402
-from plugins.vent import dibujar_vent_preview                   # noqa: E402
+from plugins.vent import dibujar_vent_preview, dibujar_boton_vent_nav  # noqa: E402
 from core import widgets as W                                   # noqa: E402
 from core.iconos import buscar_icono                            # noqa: E402
 from core.keyboard import parse_combo                           # noqa: E402
@@ -38,12 +38,22 @@ NAV_LAYOUT: dict[int, tuple[str, str]] = {
     0: ("SIS",   "#ffaa00"),
     1: ("AWA",   "#00ddff"),
     2: ("MEDIA", "#cc66ff"),
-    3: ("APP",   "#ff9933"),
+    3: ("APP",   "#33ff66"),
     4: ("CTX",   "#22dd88"),
     # 5: libre
     6: ("KEYS",  "#ffcc33"),
     7: ("VENT",  "#66ddff"),
 }
+
+# Paths de iconos para los nav iconizados — copiados de dashboard_pro.py.
+_NAV_APP_ICONS = (
+    "/usr/share/icons/gnome/256x256/places/start-here.png",
+)
+_NAV_KEYS_ICONS = (
+    "/usr/share/icons/gnome/256x256/apps/preferences-desktop-keyboard-shortcuts.png",
+    "/usr/share/icons/gnome/256x256/apps/preferences-desktop-keyboard.png",
+)
+_nav_cache: dict[str, dict] = {"app": {}, "keys": {}, "vent": {}, "ctx": {}}
 
 
 # ─────────────────────── thumbnails ───────────────────────
@@ -75,9 +85,35 @@ def _vent_color(btn):
 
 
 def render_nav_placeholder(key: int):
-    """Tile de nav 'locked' a 96x96 — visualmente similar al del deck."""
+    """Tile de nav 'locked' usando los mismos renderers que el deck en runtime.
+    SIS/AWA/MEDIA llevan mock data para hitting la rama con subs (que es la
+    única visualmente pulida); APP/CTX/KEYS/VENT usan los renderers icono+title."""
+    size = (THUMB_PX, THUMB_PX)
+    if key == 0:  # SIS
+        return W.dibujar_boton_nav(None, size, "SIS", "—/—/—", "--:--",
+                                    color="#ffaa00")
+    if key == 1:  # AWA
+        return W.dibujar_boton_nav(None, size, "AWA", "OFFLINE", "---",
+                                    color="#00ddff")
+    if key == 2:  # MEDIA
+        return W.dibujar_boton_nav(None, size, "MEDIA", "--%",
+                                    color="#cc66ff")
+    if key == 3:  # APP
+        return W.dibujar_btn_icono_nav(None, size, _NAV_APP_ICONS,
+                                        "#33ff66", "APP", False,
+                                        _nav_cache["app"])
+    if key == 4:  # CTX
+        from plugins.contexto import dibujar_boton_ctx_nav
+        return dibujar_boton_ctx_nav(None, size, activo=False)
+    if key == 6:  # KEYS
+        return W.dibujar_btn_icono_nav(None, size, _NAV_KEYS_ICONS,
+                                        "#ffcc33", "KEYS", False,
+                                        _nav_cache["keys"])
+    if key == 7:  # VENT
+        return dibujar_boton_vent_nav(None, size, activo=False)
+    # fallback (no debería llegar)
     titulo, color = NAV_LAYOUT[key]
-    return W.dibujar_boton_nav(None, (THUMB_PX, THUMB_PX), titulo, color=color)
+    return W.dibujar_boton_nav(None, size, titulo, color=color)
 
 
 def render_button(page_name: str, btn):
