@@ -176,6 +176,34 @@ systemctl --user daemon-reload
 # no `enable` — it is only launched through the button
 ```
 
+### Declarative config + GUI (work in progress)
+
+The four user-editable pages — **APP**, **WEB**, **KEYS**, **VENT** — read
+their button definitions from a TOML file:
+
+1. `$STREAMDEB_CONFIG` if set,
+2. `~/.config/streamdeb/config.toml` (your overrides),
+3. `config/default.toml` (shipped with the repo, fallback).
+
+The running service polls the mtime of these files every 2 s and reloads
+the affected plugins **without a restart**. A schema error keeps the
+last good state and logs the issue:
+
+```bash
+# bootstrap your personal config from the default
+cp config/default.toml ~/.config/streamdeb/config.toml
+# edit and save — the deck refreshes within ~3 s
+```
+
+A GTK4 GUI configurator (`bin/streamdeb-config`) shows all four pages
+read-only with deck-accurate previews. Edition support and pickers
+are tracked in the roadmap and ship in later phases.
+
+```bash
+sudo apt install python3-gi gir1.2-gtk-4.0
+./bin/streamdeb-config
+```
+
 ---
 
 ## 2) `awa_kiosk.py` — Raspberry Pi kiosk
