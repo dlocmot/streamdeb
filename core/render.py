@@ -45,7 +45,11 @@ def set_current_page(page_id: int):
         pass
 
 
+_dump_errors_logged = 0
+
+
 def _dump_tile_preview(tecla: int, fondo: Image.Image):
+    global _dump_errors_logged
     if not _LIVE_PREVIEW or _current_page_id == 0:
         return
     try:
@@ -57,8 +61,13 @@ def _dump_tile_preview(tecla: int, fondo: Image.Image):
         tmp_path = final_path + ".tmp"
         fondo.save(tmp_path, format="PNG")
         os.replace(tmp_path, final_path)
-    except Exception:
-        pass  # nunca debe tumbar el render
+    except Exception as e:
+        # No tumbar el render, pero loguear los primeros 10 errores para
+        # que el operador no quede ciego (era `except: pass` antes).
+        if _dump_errors_logged < 10:
+            _dump_errors_logged += 1
+            print(f"[DUMP] page={_current_page_id} tile={tecla}: "
+                  f"{type(e).__name__}: {e}", flush=True)
 
 # --- Config LCARS global (wirea desde dashboard) ----------------------
 _lcars_cfg = {

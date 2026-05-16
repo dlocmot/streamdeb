@@ -73,13 +73,18 @@ NAV_KEY_FOR_PAGE: dict[str, int] = {
     "view_12": 4,   # CTX
 }
 
-# Páginas no editables (view-only) — solo aparecen cuando el deck las
-# ha visitado al menos una vez. id deck → label sidebar.
-VIEW_ONLY_PAGES: dict[int, str] = {
-    1: "SIS",    2: "AWA",    3: "MEDIA",  5: "CONF",
-    10: "DOCKER", 11: "CLIMA", 12: "CTX",
-    13: "CORES", 14: "PINGS", 15: "NET", 16: "TEMPS",
+# Nombres amistosos conocidos para los page_id del deck. Cualquier otro
+# id que aparezca en /tmp/streamdeb-preview/page_<N> se mostrará como
+# "Page N" — sin whitelist, así no se pierden páginas nuevas que añadan
+# plugins/subpáginas.
+PAGE_FRIENDLY: dict[int, str] = {
+    1: "SIS",    2: "AWA",     3: "MEDIA",   4: "APP",
+    5: "CONF",   6: "WEB",     7: "KEYS",    8: "VENT",
+    9: "IDLE",   10: "DOCKER", 11: "CLIMA",  12: "CTX",
+    13: "CORES", 14: "PINGS",  15: "NET",    16: "TEMPS",
 }
+# Editables (con TOML): el resto son view-only.
+EDITABLE_PAGE_IDS = {4, 6, 7, 8}
 
 _PREVIEW_ROOT = Path("/tmp/streamdeb-preview")
 _CURRENT_PAGE_FILE = _PREVIEW_ROOT / "current_page"
@@ -212,6 +217,9 @@ class ConfigWindow(Gtk.ApplicationWindow):
         # Se apaga al clickear una página en la sidebar (manual override) y
         # se vuelve a encender con el botón 📺 del header.
         self._follow_deck = True
+        # Cache del set de page_ids view-only mostrados — para detectar
+        # cuando aparecen páginas nuevas y rebuilear el sidebar.
+        self._sidebar_pages_seen: tuple = ()
 
         # ── HeaderBar ──
         header = Gtk.HeaderBar()
@@ -315,18 +323,37 @@ class ConfigWindow(Gtk.ApplicationWindow):
 
     def _read_deck_page(self) -> str | None:
         """Lee `current_page` que escribe streamdeb. Devuelve el GUI name
-        — editable ('apps') o view-only ('view_<id>')."""
+        — editable ('apps') o view-only ('view_<id>'). Cualquier page_id
+        es válido — sin whitelist."""
         try:
             if not _CURRENT_PAGE_FILE.exists():
                 return None
             page_id = int(_CURRENT_PAGE_FILE.read_text().strip())
-        except Exception:
+        except (ValueError, OSError) as e:
+            print(f"[GUI] read current_page failed: {e}", file=sys.stderr)
             return None
         if page_id in PAGE_ID_TO_NAME:
             return PAGE_ID_TO_NAME[page_id]
-        if page_id in VIEW_ONLY_PAGES:
-            return f"view_{page_id}"
-        return None
+        return f"view_{page_id}"
+
+    def _discover_view_pages(self) -> list[int]:
+        """Devuelve los page_id que el deck ha dumpeado, ordenados.
+        Auto-detecta los 'page_<N>' dirs en PREVIEW_DIR."""
+        out = []
+        try:
+            for p in _PREVIEW_ROOT.iterdir():
+                if not p.is_dir() or not p.name.startswith("page_"):
+                    continue
+                try:
+                    pid = int(p.name[5:])
+                except ValueError:
+                    continue
+                if pid in EDITABLE_PAGE_IDS:
+                    continue  # ya está en la sidebar como editable
+                out.append(pid)
+        except OSError as e:
+            print(f"[GUI] discover view pages: {e}", file=sys.stderr)
+        return sorted(out)
 
     def _refresh_mtimes(self):
         """Captura el mtime actual de los TOML candidatos para que la próxima
@@ -361,6 +388,19 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 GLib.timeout_add_seconds(3, self._clear_status_if_idle)
             return True
 
+        # Audit: detectar páginas view-only nuevas y rebuild sidebar.
+        seen_now = tuple(self._discover_view_pages())
+        if seen_now != self._sidebar_pages_seen:
+            added = set(seen_now) - set(self._sidebar_pages_seen)
+            removed = set(self._sidebar_pages_seen) - set(seen_now)
+            if added:
+                print(f"[GUI] sidebar: páginas nuevas {sorted(added)}",
+                      file=sys.stderr)
+            if removed:
+                print(f"[GUI] sidebar: páginas removidas {sorted(removed)}",
+                      file=sys.stderr)
+            self._rebuild_sidebar()  # actualiza self._sidebar_pages_seen
+
         # Follow deck: si el deck cambió de página y el toggle de follow
         # está activo y no hay edits sin guardar, salta a esa página.
         if self._follow_deck:
@@ -368,6 +408,8 @@ class ConfigWindow(Gtk.ApplicationWindow):
             if (deck_page_name is not None
                     and deck_page_name != self.current_page
                     and not self.dirty):
+                print(f"[GUI] follow deck: {self.current_page} → "
+                      f"{deck_page_name}", file=sys.stderr)
                 self.current_page = deck_page_name
                 self.selected_key = None
                 self._rebuild_sidebar()
@@ -480,10 +522,9 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self.sidebar.append(row)
             if name == self.current_page:
                 selected_row = row
-        # View-only: páginas que el deck ha visitado (existe page_X/)
-        for pid, label in VIEW_ONLY_PAGES.items():
-            if not (_PREVIEW_ROOT / f"page_{pid}").exists():
-                continue
+        # View-only: TODAS las páginas dumpeadas por el deck (auto-discover).
+        for pid in self._discover_view_pages():
+            label = PAGE_FRIENDLY.get(pid, f"Page {pid}")
             name = f"view_{pid}"
             row = Gtk.ListBoxRow()
             row.page_name = name  # type: ignore[attr-defined]
@@ -498,6 +539,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self.sidebar.append(row)
             if name == self.current_page:
                 selected_row = row
+        self._sidebar_pages_seen = tuple(self._discover_view_pages())
         if selected_row is not None:
             self.sidebar.select_row(selected_row)
         else:
