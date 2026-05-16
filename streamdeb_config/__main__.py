@@ -23,6 +23,7 @@ from plugins.vent import dibujar_vent_preview                   # noqa: E402
 from core import widgets as W                                   # noqa: E402
 from core.iconos import buscar_icono                            # noqa: E402
 from core.keyboard import parse_combo                           # noqa: E402
+from streamdeb_config.picker_app import AppPicker               # noqa: E402
 
 
 THUMB_PX = 96    # tamaño nativo del deck XL (entrada a core/widgets)
@@ -142,6 +143,10 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self.panel.append(panel_title)
         self.panel_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
         self.panel.append(self.panel_grid)
+        # Pie con acciones (Crear/Eliminar) — se reconstruye en _update_panel
+        self.panel_actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                       spacing=8, margin_top=14)
+        self.panel.append(self.panel_actions)
         self.panel_empty = Gtk.Label(label="Click en una tecla para editarla",
                                        xalign=0)
         self.panel_empty.add_css_class("dim-label")
@@ -309,11 +314,18 @@ class ConfigWindow(Gtk.ApplicationWindow):
 
     # ── panel propiedades (editable) ──
 
+    def _clear_box(self, box: Gtk.Box):
+        child = box.get_first_child()
+        while child:
+            box.remove(child)
+            child = box.get_first_child()
+
     def _update_panel(self):
         child = self.panel_grid.get_first_child()
         while child:
             self.panel_grid.remove(child)
             child = self.panel_grid.get_first_child()
+        self._clear_box(self.panel_actions)
 
         if self.selected_key is None:
             self.panel_empty.set_visible(True)
@@ -323,6 +335,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
         page = getattr(self.cfg, self.current_page)
         by_key = {b.key: b for b in page.buttons}
         btn = by_key.get(self.selected_key)
+        page_name = self.current_page
 
         row_idx = 0
         # Header: key (no editable)
@@ -331,14 +344,30 @@ class ConfigWindow(Gtk.ApplicationWindow):
         row_idx += 1
 
         if btn is None:
-            note = Gtk.Label(
-                label="(slot vacío — edición de slots nuevos en próxima fase)",
-                xalign=0, wrap=True, max_width_chars=34)
+            if page_name == "vent":
+                note = Gtk.Label(
+                    label="(VENT: añadir slots aún no soportado)",
+                    xalign=0, wrap=True, max_width_chars=34)
+                note.add_css_class("dim-label")
+                self.panel_grid.attach(note, 0, row_idx, 2, 1)
+                return
+            # Slot vacío editable — botón "Crear" en el footer
+            note = Gtk.Label(label="(slot vacío)", xalign=0)
             note.add_css_class("dim-label")
             self.panel_grid.attach(note, 0, row_idx, 2, 1)
+            add_btn = Gtk.Button(label="＋  Crear botón vacío")
+            add_btn.add_css_class("suggested-action")
+            add_btn.connect("clicked",
+                             lambda _: self._add_button(self.selected_key))
+            self.panel_actions.append(add_btn)
+            # En APPS, segunda opción: crear desde lista del sistema
+            if page_name == "apps":
+                pick_btn = Gtk.Button(label="📂  Crear desde app instalada…")
+                pick_btn.connect("clicked", lambda _: self._open_app_picker(
+                    self._fill_new_from_app))
+                self.panel_actions.append(pick_btn)
             return
 
-        page_name = self.current_page
         if page_name == "apps":
             self._panel_entry(row_idx, "Categoría", btn.category,
                               lambda v: self._set_field(btn, "category", v))
@@ -392,6 +421,22 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 xalign=0, wrap=True, max_width_chars=34)
             note.add_css_class("dim-label")
             self.panel_grid.attach(note, 0, row_idx, 2, 1)
+
+        # Footer:
+        # - APPS: pickear app del sistema (reemplaza fields) + Eliminar
+        # - WEB/KEYS: solo Eliminar
+        # - VENT: nada (read-only)
+        if page_name == "apps":
+            replace_btn = Gtk.Button(label="📂  Reemplazar con app del sistema…")
+            replace_btn.connect("clicked", lambda _: self._open_app_picker(
+                lambda app: self._replace_apps_btn_fields(btn, app)))
+            self.panel_actions.append(replace_btn)
+        if page_name != "vent":
+            del_btn = Gtk.Button(label="🗑  Eliminar este botón")
+            del_btn.add_css_class("destructive-action")
+            del_btn.connect("clicked",
+                             lambda _: self._delete_button(self.selected_key))
+            self.panel_actions.append(del_btn)
 
     def _panel_row(self, row: int, key: str, value_widget: Gtk.Widget):
         lk = Gtk.Label(label=key, xalign=0, valign=Gtk.Align.START)
@@ -483,6 +528,81 @@ class ConfigWindow(Gtk.ApplicationWindow):
 
         self.panel_grid.attach(lk,  0, row_idx, 1, 1)
         self.panel_grid.attach(box, 1, row_idx, 1, 1)
+
+    # ── add / delete ──
+
+    def _add_button(self, key: int):
+        """Crea un botón en `key` con defaults según la página actual."""
+        page_name = self.current_page
+        if page_name == "apps":
+            new = userconfig.AppButton(
+                key=key, category="Util", label="New",
+                command="", color="#aaaaaa", icon=None,
+            )
+            self.cfg.apps.buttons.append(new)
+        elif page_name == "web":
+            new = userconfig.WebButton(
+                key=key, label="New", sub="",
+                url="https://", color="#cccccc",
+            )
+            self.cfg.web.buttons.append(new)
+        elif page_name == "keys":
+            new = userconfig.KeyButton(
+                key=key, label="New", icon=None,
+                action=userconfig.KeyAction(type="combo", keys="ctrl+a"),
+            )
+            self.cfg.keys.buttons.append(new)
+        else:
+            return  # vent: no soportado
+        self._mark_dirty()
+        self._refresh_cell(key)
+        self._rebuild_sidebar()
+        self._update_panel()
+
+    def _delete_button(self, key: int):
+        page = getattr(self.cfg, self.current_page)
+        before = len(page.buttons)
+        page.buttons[:] = [b for b in page.buttons if b.key != key]
+        if len(page.buttons) == before:
+            return  # nada que borrar
+        self._mark_dirty()
+        self._refresh_cell(key)
+        self._rebuild_sidebar()
+        self._update_panel()
+
+    # ── app picker integration ──
+
+    def _open_app_picker(self, on_pick):
+        picker = AppPicker(self, on_pick)
+        picker.present()
+
+    def _fill_new_from_app(self, app: dict):
+        """Crea un AppButton nuevo en selected_key con la data del picker."""
+        if self.selected_key is None:
+            return
+        new = userconfig.AppButton(
+            key=self.selected_key,
+            category="Util",
+            label=app["name"][:12],   # se trunca para no desbordar el deck
+            command=app["exec"],
+            color="#aaaaaa",
+            icon=app.get("icon") or None,
+        )
+        self.cfg.apps.buttons.append(new)
+        self._mark_dirty()
+        self._refresh_cell(self.selected_key)
+        self._rebuild_sidebar()
+        self._update_panel()
+
+    def _replace_apps_btn_fields(self, btn, app: dict):
+        """Reemplaza label/command/icon (y opcionalmente category) del botón
+        existente con los datos del picker. Conserva color y key."""
+        btn.label = app["name"][:12]
+        btn.command = app["exec"]
+        btn.icon = app.get("icon") or None
+        self._mark_dirty()
+        self._refresh_cell(self.selected_key)
+        self._update_panel()
 
     def _schedule_thumb_redraw(self):
         """Re-pinta la celda actual ~250 ms después del último edit
