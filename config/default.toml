@@ -365,7 +365,7 @@ action = { type = "combo", keys = "ctrl+shift+v" }
 # pasada a `wmctrl -e` (calculada para 3840×1200, dejando 27px de
 # margen vertical para el panel MATE).
 [pages.vent]
-display_name = "VENT"
+display_name = "Win"
 
 # Fila 2 — altura completa
 [[pages.vent.buttons]]

@@ -49,7 +49,7 @@ def _vent_nav_paths():
 
 def dibujar_boton_vent_nav(deck, tamaño, activo=False):
     return dibujar_btn_icono_nav(deck, tamaño, _vent_nav_paths(),
-                                  "#66ddff", "VENT", activo, _vent_cache)
+                                  "#66ddff", "Win", activo, _vent_cache)
 
 
 def dibujar_vent_preview(deck, tamaño, label, x_ini, x_fin, y_ini, y_fin, color):

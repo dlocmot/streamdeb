@@ -110,7 +110,7 @@ class KeysPage:
 
 @dataclass
 class VentPage:
-    display_name: str = "VENT"
+    display_name: str = "Win"
     buttons: list[VentButton] = field(default_factory=list)
 
 
