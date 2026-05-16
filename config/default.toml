@@ -1,0 +1,476 @@
+# streamdeb — configuración declarativa
+#
+# Este archivo es el "estado por defecto" del repo. El servicio busca
+# config en este orden:
+#   1. $STREAMDEB_CONFIG (env var, si está definida)
+#   2. ~/.config/streamdeb/config.toml  (preferencias del usuario)
+#   3. <repo>/config/default.toml       (este archivo, fallback)
+#
+# Para personalizar sin tocar el repo:
+#   cp config/default.toml ~/.config/streamdeb/config.toml
+#
+# El GUI configurador (en desarrollo) edita ~/.config/streamdeb/config.toml.
+#
+# Schema versionado: si rompemos compatibilidad subimos schema_version.
+
+schema_version = 1
+
+
+# ─────────────────────── settings ───────────────────────
+[settings]
+brillo             = 75      # brillo deck 10..100 (paso 10 en CONF)
+fallback_seconds   = 300     # vuelve a SIS tras N s sin interacción (60..1800)
+dim_seconds        = 1800    # apaga deck tras N s sin interacción (60..7200)
+profile            = 2       # 1=con marcos · 2=sin marco externo · 3=LCARS
+banner_enabled     = false   # si true, fallback va a página IDLE/BANNER en vez de SIS
+theme_lcars        = "classic"  # nombre del tema en plugins/themes/ (solo si profile=3)
+monitor_brightness = 100     # xrandr gamma del monitor externo (10..100)
+
+[settings.api]
+host = "http://192.168.18.10"
+user = "StreamDeck"
+
+
+# ═══════════════════════════════════════════════════════════
+# pages — contenidos editables por el futuro GUI
+# ═══════════════════════════════════════════════════════════
+
+# ─────────────────────── APPS (página 4) ───────────────────────
+[pages.apps]
+display_name = "APP"
+
+[[pages.apps.buttons]]
+key      = 8
+category = "Dev"
+label    = "Term"
+command  = "mate-terminal --working-directory=/home/jfqp"
+color    = "#33ccff"
+icon     = "utilities-terminal"
+
+[[pages.apps.buttons]]
+key      = 9
+category = "Dev"
+label    = "Arduino"
+command  = "flatpak run cc.arduino.IDE2"
+color    = "#33ccff"
+icon     = "cc.arduino.IDE2"
+
+[[pages.apps.buttons]]
+key      = 10
+category = "Dev"
+label    = "GitHub"
+command  = "flatpak run io.github.shiftey.Desktop"
+color    = "#33ccff"
+icon     = "io.github.shiftey.Desktop"
+
+[[pages.apps.buttons]]
+key      = 11
+category = "Web"
+label    = "Brave"
+command  = "/usr/bin/brave-browser-stable"
+color    = "#ff9933"
+icon     = "brave-browser"
+
+[[pages.apps.buttons]]
+key      = 12
+category = "Web"
+label    = "Firefox"
+command  = "firejail --netfilter --novideo --nodbus --whitelist=~/Descargas /usr/lib/firefox-esr/firefox-esr --no-remote"
+color    = "#ff9933"
+icon     = "firefox-esr"
+
+[[pages.apps.buttons]]
+key      = 16
+category = "3D"
+label    = "Prusa"
+command  = "flatpak run com.prusa3d.PrusaSlicer"
+color    = "#cc66ff"
+icon     = "com.prusa3d.PrusaSlicer"
+
+[[pages.apps.buttons]]
+key      = 17
+category = "Media"
+label    = "OBS"
+command  = "obs"
+color    = "#ff66cc"
+icon     = "com.obsproject.Studio"
+
+[[pages.apps.buttons]]
+key      = 18
+category = "Media"
+label    = "VLC"
+command  = "/usr/bin/vlc"
+color    = "#ff66cc"
+icon     = "vlc"
+
+[[pages.apps.buttons]]
+key      = 19
+category = "Sec"
+label    = "Burp"
+command  = "/opt/BurpSuiteCommunity/BurpSuiteCommunity"
+color    = "#ff3333"
+icon     = "/opt/BurpSuiteCommunity/.install4j/BurpSuiteCommunity.png"
+
+[[pages.apps.buttons]]
+key      = 20
+category = "Net"
+label    = "Winbox"
+command  = "wine /home/jfqp/Downloads/winbox.exe"
+color    = "#ffcc33"
+# icon ausente → se usa label como fallback
+
+[[pages.apps.buttons]]
+key      = 24
+category = "Util"
+label    = "AnyDesk"
+command  = "flatpak run com.anydesk.Anydesk"
+color    = "#aaaaaa"
+icon     = "com.anydesk.Anydesk"
+
+[[pages.apps.buttons]]
+key      = 25
+category = "Util"
+label    = "RustDesk"
+command  = "rustdesk"
+color    = "#aaaaaa"
+icon     = "rustdesk"
+
+[[pages.apps.buttons]]
+key      = 26
+category = "Util"
+label    = "Pluma"
+command  = "pluma"
+color    = "#aaaaaa"
+icon     = "accessories-text-editor"
+
+[[pages.apps.buttons]]
+key      = 27
+category = "Util"
+label    = "Calc"
+command  = "mate-calc"
+color    = "#aaaaaa"
+icon     = "accessories-calculator"
+
+[[pages.apps.buttons]]
+key      = 29
+category = "Util"
+label    = "SysMon"
+command  = "mate-system-monitor"
+color    = "#aaaaaa"
+icon     = "utilities-system-monitor"
+
+[[pages.apps.buttons]]
+key      = 30
+category = "Util"
+label    = "VBox"
+command  = "VirtualBox"
+color    = "#aaaaaa"
+icon     = "virtualbox"
+
+
+# ─────────────────────── WEB (página 6) ───────────────────────
+[pages.web]
+display_name = "WEB"
+
+# Fila 1: Mail/Msg · AI · Dev · Video
+[[pages.web.buttons]]
+key   = 8
+label = "Gmail"
+sub   = "google"
+url   = "https://mail.google.com"
+color = "#ea4335"
+
+[[pages.web.buttons]]
+key   = 9
+label = "Proton"
+sub   = "mail"
+url   = "https://mail.proton.me"
+color = "#ea4335"
+
+[[pages.web.buttons]]
+key   = 10
+label = "WhatsApp"
+sub   = "web"
+url   = "https://web.whatsapp.com"
+color = "#ea4335"
+
+[[pages.web.buttons]]
+key   = 11
+label = "Claude"
+sub   = "ai"
+url   = "https://claude.ai"
+color = "#ab47bc"
+
+[[pages.web.buttons]]
+key   = 12
+label = "Gemini"
+sub   = "google"
+url   = "https://gemini.google.com"
+color = "#ab47bc"
+
+[[pages.web.buttons]]
+key   = 13
+label = "GitHub"
+sub   = "code"
+url   = "https://github.com"
+color = "#cccccc"
+
+[[pages.web.buttons]]
+key   = 14
+label = "YouTube"
+sub   = "video"
+url   = "https://youtube.com"
+color = "#ff6f00"
+
+# Fila 2: 3D · Net
+[[pages.web.buttons]]
+key   = 16
+label = "Tinker"
+sub   = "cad"
+url   = "https://tinkercad.com"
+color = "#00bcd4"
+
+[[pages.web.buttons]]
+key   = 17
+label = "Thingi"
+sub   = "verse"
+url   = "https://thingiverse.com"
+color = "#00bcd4"
+
+[[pages.web.buttons]]
+key   = 18
+label = "MyIP"
+sub   = "publico"
+url   = "https://whatismyipaddress.com"
+color = "#66bb6a"
+
+[[pages.web.buttons]]
+key   = 19
+label = "Cloudfl."
+sub   = "dash"
+url   = "https://dash.cloudflare.com"
+color = "#66bb6a"
+
+[[pages.web.buttons]]
+key   = 20
+label = "AWA"
+sub   = "admin"
+url   = "http://192.168.18.10/admin"
+color = "#66bb6a"
+
+# Fila 3: News + Empresa
+[[pages.web.buttons]]
+key   = 24
+label = "Repúb."
+sub   = "lica"
+url   = "https://larepublica.pe"
+color = "#ffc107"
+
+[[pages.web.buttons]]
+key   = 25
+label = "El Com."
+sub   = "ercio"
+url   = "https://elcomercio.pe"
+color = "#ffc107"
+
+[[pages.web.buttons]]
+key   = 26
+label = "Gestión"
+sub   = "diario"
+url   = "https://gestion.pe"
+color = "#ffc107"
+
+[[pages.web.buttons]]
+key   = 27
+label = "Agentica"
+sub   = "Holotech"
+url   = "https://agentica.holotech.pe/HOL/inbox/all"
+color = "#26c6da"
+
+[[pages.web.buttons]]
+key   = 28
+label = "Growatt"
+sub   = "server"
+url   = "https://server.growatt.com/login?lang=en"
+color = "#26c6da"
+
+# Iconos custom para URLs específicas (favicon problemático o branding propio)
+[pages.web.icon_overrides]
+"https://github.com"          = "https://github.githubassets.com/favicons/favicon-dark.png"
+"https://claude.ai"           = "https://api.iconify.design/simple-icons:claude.svg?color=%23d97757"
+"http://192.168.18.10/admin"  = "/usr/share/icons/mate/48x48/categories/preferences-system-network.png"
+
+
+# ─────────────────────── KEYS (página 7) ───────────────────────
+[pages.keys]
+display_name = "KEYS"
+color        = "#ffcc33"
+
+# action.type:
+#   "combo" → keys = "ctrl+shift+c", "alt+f4", "print_screen", "super+l", ...
+#   "type"  → text = "string a tipear" (usa keyboard.type)
+
+[[pages.keys.buttons]]
+key    = 8
+label  = "Captura"
+icon   = "applets-screenshooter"
+action = { type = "combo", keys = "print_screen" }
+
+[[pages.keys.buttons]]
+key    = 9
+label  = "CapSel"
+icon   = "applets-screenshooter"
+action = { type = "combo", keys = "shift+print_screen" }
+
+[[pages.keys.buttons]]
+key    = 10
+label  = "Bloqueo"
+icon   = "system-lock-screen"
+action = { type = "combo", keys = "super+l" }
+
+[[pages.keys.buttons]]
+key    = 11
+label  = "AltTab"
+icon   = "view-restore"
+action = { type = "combo", keys = "alt+tab" }
+
+[[pages.keys.buttons]]
+key    = 12
+label  = "Cerrar"
+icon   = "window-close"
+action = { type = "combo", keys = "alt+f4" }
+
+[[pages.keys.buttons]]
+key    = 13
+label  = "Escrit"
+icon   = "user-desktop"
+action = { type = "combo", keys = "super+d" }
+
+[[pages.keys.buttons]]
+key    = 16
+label  = "CopiaT"
+icon   = "edit-copy"
+action = { type = "combo", keys = "ctrl+shift+c" }
+
+[[pages.keys.buttons]]
+key    = 17
+label  = "PegaT"
+icon   = "edit-paste"
+action = { type = "combo", keys = "ctrl+shift+v" }
+
+
+# ─────────────────────── VENT (página 8) ───────────────────────
+# Tiling de ventanas vía wmctrl. fraction_{x,y} = [min, max] como
+# fracción de la pantalla. wmctrl_geom es la geometría literal
+# pasada a `wmctrl -e` (calculada para 3840×1200, dejando 27px de
+# margen vertical para el panel MATE).
+[pages.vent]
+display_name = "VENT"
+
+# Fila 2 — altura completa
+[[pages.vent.buttons]]
+key         = 8
+label       = "Izq"
+fraction_x  = [0.0, 0.333]
+fraction_y  = [0.0, 1.0]
+wmctrl_geom = "0,0,27,1276,1168"
+
+[[pages.vent.buttons]]
+key         = 9
+label       = "Centro"
+fraction_x  = [0.333, 0.667]
+fraction_y  = [0.0, 1.0]
+wmctrl_geom = "0,1282,27,1276,1168"
+
+[[pages.vent.buttons]]
+key         = 10
+label       = "Der"
+fraction_x  = [0.667, 1.0]
+fraction_y  = [0.0, 1.0]
+wmctrl_geom = "0,2564,27,1276,1168"
+
+[[pages.vent.buttons]]
+key         = 11
+label       = "M.Izq"
+fraction_x  = [0.0, 0.5]
+fraction_y  = [0.0, 1.0]
+wmctrl_geom = "0,0,27,1917,1168"
+
+[[pages.vent.buttons]]
+key         = 12
+label       = "M.Der"
+fraction_x  = [0.5, 1.0]
+fraction_y  = [0.0, 1.0]
+wmctrl_geom = "0,1923,27,1917,1168"
+
+# Fila 3 — mitad superior
+[[pages.vent.buttons]]
+key         = 16
+label       = "Izq↑"
+fraction_x  = [0.0, 0.333]
+fraction_y  = [0.0, 0.5]
+wmctrl_geom = "0,0,27,1276,584"
+
+[[pages.vent.buttons]]
+key         = 17
+label       = "Cen↑"
+fraction_x  = [0.333, 0.667]
+fraction_y  = [0.0, 0.5]
+wmctrl_geom = "0,1282,27,1276,584"
+
+[[pages.vent.buttons]]
+key         = 18
+label       = "Der↑"
+fraction_x  = [0.667, 1.0]
+fraction_y  = [0.0, 0.5]
+wmctrl_geom = "0,2564,27,1276,584"
+
+[[pages.vent.buttons]]
+key         = 19
+label       = "MI↑"
+fraction_x  = [0.0, 0.5]
+fraction_y  = [0.0, 0.5]
+wmctrl_geom = "0,0,27,1917,584"
+
+[[pages.vent.buttons]]
+key         = 20
+label       = "MD↑"
+fraction_x  = [0.5, 1.0]
+fraction_y  = [0.0, 0.5]
+wmctrl_geom = "0,1923,27,1917,584"
+
+# Fila 4 — mitad inferior
+[[pages.vent.buttons]]
+key         = 24
+label       = "Izq↓"
+fraction_x  = [0.0, 0.333]
+fraction_y  = [0.5, 1.0]
+wmctrl_geom = "0,0,611,1276,584"
+
+[[pages.vent.buttons]]
+key         = 25
+label       = "Cen↓"
+fraction_x  = [0.333, 0.667]
+fraction_y  = [0.5, 1.0]
+wmctrl_geom = "0,1282,611,1276,584"
+
+[[pages.vent.buttons]]
+key         = 26
+label       = "Der↓"
+fraction_x  = [0.667, 1.0]
+fraction_y  = [0.5, 1.0]
+wmctrl_geom = "0,2564,611,1276,584"
+
+[[pages.vent.buttons]]
+key         = 27
+label       = "MI↓"
+fraction_x  = [0.0, 0.5]
+fraction_y  = [0.5, 1.0]
+wmctrl_geom = "0,0,611,1917,584"
+
+[[pages.vent.buttons]]
+key         = 28
+label       = "MD↓"
+fraction_x  = [0.5, 1.0]
+fraction_y  = [0.5, 1.0]
+wmctrl_geom = "0,1923,611,1917,584"
