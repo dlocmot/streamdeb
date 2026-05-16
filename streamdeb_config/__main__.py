@@ -60,6 +60,10 @@ _nav_cache: dict[str, dict] = {"app": {}, "keys": {}, "vent": {}, "ctx": {}}
 PAGE_IDS: dict[str, int] = {"apps": 4, "web": 6, "keys": 7, "vent": 8}
 
 _PREVIEW_ROOT = Path("/tmp/streamdeb-preview")
+_CURRENT_PAGE_FILE = _PREVIEW_ROOT / "current_page"
+
+# Reverso de PAGE_IDS: deck page_id → GUI page_name
+PAGE_ID_TO_NAME = {4: "apps", 6: "web", 7: "keys", 8: "vent"}
 
 
 def _live_tile_path(page_name: str, key: int) -> Path | None:
@@ -260,6 +264,19 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self._populate_grid()
         self._update_panel()
 
+    def _read_deck_page(self) -> str | None:
+        """Lee `current_page` que escribe streamdeb. Devuelve el nombre
+        de la página editable equivalente, o None si está en una no
+        editable (SIS, AWA, MEDIA, etc.) o no existe el archivo aún."""
+        try:
+            if not _CURRENT_PAGE_FILE.exists():
+                return None
+            text = _CURRENT_PAGE_FILE.read_text().strip()
+            page_id = int(text)
+        except Exception:
+            return None
+        return PAGE_ID_TO_NAME.get(page_id)
+
     def _refresh_mtimes(self):
         """Captura el mtime actual de los TOML candidatos para que la próxima
         comparación del watcher no detecte nuestro propio escribir."""
@@ -292,6 +309,18 @@ class ConfigWindow(Gtk.ApplicationWindow):
                 self._set_status("↻ recargado (cambio externo detectado)")
                 GLib.timeout_add_seconds(3, self._clear_status_if_idle)
             return True
+
+        # Follow deck: si el deck cambió de página a una de las editables
+        # y la GUI no tiene cambios sin guardar, seguimos.
+        deck_page_name = self._read_deck_page()
+        if (deck_page_name is not None
+                and deck_page_name != self.current_page
+                and not self.dirty):
+            self.current_page = deck_page_name
+            self.selected_key = None
+            self._rebuild_sidebar()
+            self._populate_grid()
+            self._update_panel()
 
         # Mirror del deck: si los tiles de la página actual cambiaron
         # (deck redibujó), repintamos el grid sin tocar el TOML cacheado.

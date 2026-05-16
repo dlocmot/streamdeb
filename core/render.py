@@ -30,9 +30,19 @@ _current_page_id = 0  # lo wirea dashboard_pro con set_current_page()
 
 def set_current_page(page_id: int):
     """Wirea desde dashboard cuando cambia pagina_actual, para que
-    _finalizar sepa en qué subdir guardar los tiles."""
+    _finalizar sepa en qué subdir guardar los tiles. También escribe el
+    id a `PREVIEW_DIR/current_page` para que la GUI configurador siga
+    al deck en tiempo real."""
     global _current_page_id
     _current_page_id = page_id
+    if not _LIVE_PREVIEW:
+        return
+    try:
+        os.makedirs(PREVIEW_DIR, exist_ok=True)
+        with open(os.path.join(PREVIEW_DIR, "current_page"), "w") as f:
+            f.write(str(page_id))
+    except Exception:
+        pass
 
 
 def _dump_tile_preview(tecla: int, fondo: Image.Image):
