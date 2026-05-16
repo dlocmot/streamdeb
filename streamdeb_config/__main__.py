@@ -406,10 +406,16 @@ class ConfigWindow(Gtk.ApplicationWindow):
         cell = Gtk.Button()
         cell.set_size_request(DISPLAY_PX, DISPLAY_PX)
         cell.add_css_class("flat")
-        # Fila nav (0..7 menos 5): siempre placeholder locked, ignora btn
+        # Fila nav (0..7 menos 5): no editable, pero mostramos el tile en vivo
+        # del deck si existe (incluye fecha/hora/cuenta AWA reales); cae a un
+        # placeholder mock solo cuando el deck aún no dibujó esa página.
         if k in NAV_LAYOUT:
             try:
-                img = render_nav_placeholder(k)
+                live = _live_tile_path(self.current_page, k)
+                if live is not None:
+                    img = Image.open(live).convert("RGBA")
+                else:
+                    img = render_nav_placeholder(k)
                 tex = _pil_to_texture(img)
                 pic = Gtk.Picture.new_for_paintable(tex)
                 pic.set_size_request(DISPLAY_PX, DISPLAY_PX)
