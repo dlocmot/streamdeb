@@ -264,8 +264,9 @@ class ConfigWindow(Gtk.ApplicationWindow):
         body.append(scroller)
 
         self._reload_from_disk()
-        # Watcher: polea cada 2s mtime de los TOML candidatos
-        GLib.timeout_add_seconds(2, self._poll_external_changes)
+        # Watcher: polea cada 500 ms para que el mirror del deck se sienta
+        # en vivo (clock SIS, cuenta AWA, etc). 32 stat() por tick es barato.
+        GLib.timeout_add(500, self._poll_external_changes)
 
     # ── carga / save ──
 
@@ -515,16 +516,28 @@ class ConfigWindow(Gtk.ApplicationWindow):
             if k == self.selected_key:
                 cell.add_css_class("suggested-action")
             return cell
-        if btn is not None:
-            # Mirror live: si streamdeb ya dibujó esta tecla en esta página,
-            # mostramos su PNG real (refleja lo que el deck enseña). Si no,
-            # fallback a render local desde el TOML.
-            live = _live_tile_path(self.current_page, k)
+        # Live mirror SIEMPRE primero: si el deck dibujó este tile en esta
+        # página, lo mostramos exactamente (incluye widgets dinámicos de
+        # SIS/AWA/MEDIA que no están en el TOML).
+        live = _live_tile_path(self.current_page, k)
+        if live is not None:
             try:
-                if live is not None:
-                    img = Image.open(live).convert("RGBA")
-                else:
-                    img = render_button(self.current_page, btn)
+                img = Image.open(live).convert("RGBA")
+                tex = _pil_to_texture(img)
+                pic = Gtk.Picture.new_for_paintable(tex)
+                pic.set_can_shrink(True)
+                pic.set_size_request(DISPLAY_PX, DISPLAY_PX)
+                cell.set_child(pic)
+                label_for_tooltip = btn.label if btn is not None else f"key {k}"
+                cell.set_tooltip_text(f"key {k} — {label_for_tooltip}")
+            except Exception as e:
+                cell.set_label(f"err\n{k}")
+                print(f"[GUI] live read error {self.current_page}[{k}]: {e}",
+                      file=sys.stderr)
+        elif btn is not None:
+            # Fallback: render local del TOML (deck aún no dibujó esta tecla)
+            try:
+                img = render_button(self.current_page, btn)
                 tex = _pil_to_texture(img)
                 pic = Gtk.Picture.new_for_paintable(tex)
                 pic.set_can_shrink(True)
