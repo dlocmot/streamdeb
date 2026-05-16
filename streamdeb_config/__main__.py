@@ -17,6 +17,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, GLib, Gdk, GdkPixbuf            # noqa: E402
+from PIL import Image                                           # noqa: E402
 
 from plugins import userconfig                                  # noqa: E402
 from plugins.vent import dibujar_vent_preview                   # noqa: E402
@@ -48,13 +49,18 @@ NAV_LAYOUT: dict[int, tuple[str, str]] = {
 
 
 def _pil_to_texture(img):
-    """PIL.Image RGBA → Gdk.Texture (API moderno, no deprecated)."""
+    """PIL.Image RGBA → Gdk.Texture, compuesto sobre negro como en el deck.
+    `core.widgets._nuevo_lienzo` devuelve un canvas transparente; el deck
+    lo compone sobre fondo negro en `core.render._finalizar`. Sin esto, el
+    texto blanco de los nav buttons queda invisible en un tema GTK claro."""
     img = img.convert("RGBA")
-    data = img.tobytes()
+    bg = Image.new("RGB", img.size, (0, 0, 0))
+    bg.paste(img, mask=img.split()[3])  # canal alfa como máscara
+    data = bg.tobytes()
     pix = GdkPixbuf.Pixbuf.new_from_bytes(
         GLib.Bytes.new(data),
         GdkPixbuf.Colorspace.RGB,
-        True, 8, img.width, img.height, img.width * 4,
+        False, 8, bg.width, bg.height, bg.width * 3,
     )
     return Gdk.Texture.new_for_pixbuf(pix)
 
