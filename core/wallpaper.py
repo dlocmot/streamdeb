@@ -6,8 +6,9 @@ from PIL import Image, ImageEnhance
 from .config import WALLPAPER_BRILLO, WALLPAPER_SATURACION
 
 
-WALLPAPER_DIR    = os.path.expanduser("~/.cache/streamdeb/wallpapers")
-WALLPAPER_GALAXY = os.path.expanduser("~/.cache/streamdeb/wallpaper.jpg")
+# Wallpapers viven en ~/Pictures/wallpapers/ — persisten frente a limpiezas
+# de cache, y el usuario puede arrastrar imágenes con cualquier file manager.
+WALLPAPER_DIR = os.path.expanduser("~/Pictures/wallpapers")
 
 # Layout del deck (sobreescrito por _abrir_deck → set_layout)
 _cols, _rows = 8, 4
@@ -30,7 +31,7 @@ def set_layout(cols, rows):
 
 
 def lista_paths():
-    """[0]=None, [1]=galaxy fija, [2..N]=archivos en WALLPAPER_DIR ordenados.
+    """[0]=None (OFF), [1..N]=archivos en WALLPAPER_DIR ordenados.
     Re-indexa automáticamente si cambió el mtime del directorio (auto-detect
     de archivos nuevos / borrados / reemplazados, sin restart)."""
     global _paths, _paths_mtime, _cache
@@ -40,8 +41,7 @@ def lista_paths():
         mtime = 0
     if _paths is not None and mtime == _paths_mtime:
         return _paths
-    # Cambió: re-indexar y limpiar cache de PILs (por si reemplazaron archivos)
-    paths = [None, WALLPAPER_GALAXY]
+    paths = [None]
     if os.path.isdir(WALLPAPER_DIR):
         extras = sorted(
             os.path.join(WALLPAPER_DIR, n)
