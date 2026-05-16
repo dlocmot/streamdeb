@@ -26,6 +26,7 @@ from core.iconos import buscar_icono                            # noqa: E402
 from core.keyboard import parse_combo                           # noqa: E402
 from streamdeb_config.picker_app import AppPicker               # noqa: E402
 from streamdeb_config.picker_icon import IconPicker             # noqa: E402
+from streamdeb_config import wizard as deck_wizard              # noqa: E402
 
 
 THUMB_PX = 96    # tamaño nativo del deck XL (entrada a core/widgets)
@@ -1107,7 +1108,16 @@ class ConfigApp(Gtk.Application):
 
     def do_activate(self):
         _install_css()
-        ConfigWindow(self).present()
+        # Gate inicial: verifica que haya un Stream Deck conectado y elegido.
+        def _ready(deck: dict):
+            self._selected_deck = deck
+            print(f"[GUI] deck listo: {deck.get('type')} "
+                  f"serial={deck.get('serial')}", file=sys.stderr)
+            ConfigWindow(self).present()
+        def _quit():
+            print("[GUI] usuario salió del wizard", file=sys.stderr)
+            self.quit()
+        deck_wizard.gate(_ready, _quit)
 
 
 def main():

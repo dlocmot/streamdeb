@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Enumera Stream Decks conectados vía USB usando el venv del servicio
+# (la lib `streamdeck` está ahí, no en system python). Salida en JSON
+# para que la GUI lo parsee y muestre el wizard de selección.
+set -e
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$REPO/.venv/bin/python" - <<'PY'
+import json, sys
+try:
+    from StreamDeck.DeviceManager import DeviceManager
+except Exception as e:
+    print(json.dumps({"error": f"streamdeck lib missing: {e}", "decks": []}))
+    sys.exit(0)
+
+out = []
+try:
+    devs = DeviceManager().enumerate()
+except Exception as e:
+    print(json.dumps({"error": f"enumerate failed: {e}", "decks": []}))
+    sys.exit(0)
+
+for d in devs:
+    if not d.is_visual():
+        continue  # filtra Stream Deck Pedal — no tiene pantalla
+    info = {
+        "type": d.deck_type(),
+        "id": d.id(),
+        "serial": None,
+        "firmware": None,
+        "error": None,
+    }
+    try:
+        d.open()
+        info["serial"]   = d.get_serial_number()
+        info["firmware"] = d.get_firmware_version()
+    except Exception as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        try: d.close()
+        except Exception: pass
+    out.append(info)
+
+print(json.dumps({"error": None, "decks": out}))
+PY

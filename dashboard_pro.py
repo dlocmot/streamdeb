@@ -1021,6 +1021,19 @@ def iniciar_dashboard():
             print("[WAIT] buscando Stream Deck...", flush=True)
             time.sleep(2)
     print("[OK] Stream Deck listo", flush=True)
+    # Publica info del deck a /tmp/streamdeb-preview/deck.json — la GUI lo
+    # lee al arrancar para saltar la enumeración (que falla con HID busy).
+    try:
+        import json as _json
+        os.makedirs(PREVIEW_DIR, exist_ok=True)
+        with open(os.path.join(PREVIEW_DIR, "deck.json"), "w") as f:
+            _json.dump({
+                "type": deck.deck_type(),
+                "serial": deck.get_serial_number(),
+                "firmware": deck.get_firmware_version(),
+            }, f)
+    except Exception as e:
+        print(f"[DECK-INFO] dump error: {e}", flush=True)
 
     tam = deck.key_image_format()['size']
     deck.set_key_callback(boton_presionado)
