@@ -195,13 +195,24 @@ cp config/default.toml ~/.config/streamdeb/config.toml
 # edit and save — the deck refreshes within ~3 s
 ```
 
-A GTK4 GUI configurator (`bin/streamdeb-config`) shows all four pages
-read-only with deck-accurate previews. Edition support and pickers
-are tracked in the roadmap and ship in later phases.
+A GTK4 GUI configurator (`bin/streamdeb-config`) mirrors the live
+deck output (per-tile, bidirectional clicks) and lets you edit
+labels, commands, icons and shortcuts. App-picker scans
+`*.desktop`; icon-picker reads the system theme.
 
+Run from the source tree:
 ```bash
-sudo apt install python3-gi gir1.2-gtk-4.0
+sudo apt install python3-gi gir1.2-gtk-4.0 python3-elgato-streamdeck
 ./bin/streamdeb-config
+```
+
+Build a system-wide `.deb` (lands in your applications menu under
+*System Tools*):
+```bash
+./packaging/build.sh
+sudo dpkg -i streamdeb-config_1.0.0_all.deb
+sudo apt -f install   # pull deps if missing
+streamdeb-config       # or launch from the menu
 ```
 
 ---

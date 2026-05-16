@@ -1,0 +1,13 @@
+Package: streamdeb-config
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.11), python3-gi, python3-pil, python3-elgato-streamdeck, gir1.2-gtk-4.0
+Maintainer: Jimmy <dlocmot@gmail.com>
+Homepage: https://github.com/dlocmot/streamdeb
+Description: GTK4 configurator for the streamdeb Stream Deck dashboard
+ streamdeb-config is the GTK4 GUI for editing the page layouts of the
+ streamdeb dashboard (apps, web links, key combos, window tiling) and
+ mirroring the live deck output. Talks to the streamdeb service via
+ file-based IPC under /tmp/streamdeb-preview/.

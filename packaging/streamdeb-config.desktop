@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=streamdeb config
+GenericName=Stream Deck Configurator
+Comment=Edit pages and buttons of the streamdeb Stream Deck dashboard
+Exec=streamdeb-config
+Icon=streamdeb-config
+Terminal=false
+Categories=System;Utility;Settings;HardwareSettings;
+Keywords=streamdeck;elgato;deck;configurator;
+StartupNotify=true

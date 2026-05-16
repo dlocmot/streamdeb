@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# Enumera Stream Decks conectados vía USB usando el venv del servicio
-# (la lib `streamdeck` está ahí, no en system python). Salida en JSON
-# para que la GUI lo parsee y muestre el wizard de selección.
+# Enumera Stream Decks conectados. Prefiere system python (con
+# python3-elgato-streamdeck instalado, p.ej. en el .deb empaquetado).
+# Si no, cae al .venv del repo en dev. Output JSON para la GUI.
 set -e
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-exec "$REPO/.venv/bin/python" - <<'PY'
+PY=""
+if /usr/bin/python3 -c "import StreamDeck.DeviceManager" 2>/dev/null; then
+    PY=/usr/bin/python3
+else
+    VENV="$(cd "$(dirname "$0")/.." && pwd)/.venv/bin/python"
+    [ -x "$VENV" ] && PY="$VENV"
+fi
+if [ -z "$PY" ]; then
+    echo '{"error": "ni system python ni venv tienen la lib StreamDeck (apt install python3-elgato-streamdeck)", "decks": []}'
+    exit 0
+fi
+exec "$PY" - <<'PY'
 import json, sys
 try:
     from StreamDeck.DeviceManager import DeviceManager
@@ -21,14 +31,9 @@ except Exception as e:
 
 for d in devs:
     if not d.is_visual():
-        continue  # filtra Stream Deck Pedal — no tiene pantalla
-    info = {
-        "type": d.deck_type(),
-        "id": d.id(),
-        "serial": None,
-        "firmware": None,
-        "error": None,
-    }
+        continue
+    info = {"type": d.deck_type(), "id": d.id(),
+            "serial": None, "firmware": None, "error": None}
     try:
         d.open()
         info["serial"]   = d.get_serial_number()

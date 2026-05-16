@@ -6,3 +6,5 @@ dist/
 build/
 .env
 *.log
+# El .deb se construye con ./packaging/build.sh — no versionado
+streamdeb-config_*_all.deb
