@@ -1,41 +1,32 @@
-"""Plugin WEB (página 6): accesos rápidos a URLs vía favicons."""
+"""Plugin WEB (página 6): accesos rápidos a URLs vía favicons.
+
+Data declarativa en `config/default.toml` o `~/.config/streamdeb/config.toml`."""
 from core.iconos import favicon_path as _favicon_core
 from core.keyboard import tipear_url
 from core.widgets import dibujar_lanzador_web
 
 
-# tecla: (label, sub, url, color) — agrupado por tipo de contenido
-# Mail/Msg #ea4335 · AI #ab47bc · Dev #cccccc · Video #ff6f00
-# 3D #00bcd4 · Net #66bb6a · News #ffc107 · Empresa #26c6da
-WEB_PAGINA = {
-    # Fila 1: Mail/Msg · AI · Dev · Video
-    8:  ("Gmail",    "google",     "https://mail.google.com",                     "#ea4335"),
-    9:  ("Proton",   "mail",       "https://mail.proton.me",                      "#ea4335"),
-    10: ("WhatsApp", "web",        "https://web.whatsapp.com",                    "#ea4335"),
-    11: ("Claude",   "ai",         "https://claude.ai",                           "#ab47bc"),
-    12: ("Gemini",   "google",     "https://gemini.google.com",                   "#ab47bc"),
-    13: ("GitHub",   "code",       "https://github.com",                          "#cccccc"),
-    14: ("YouTube",  "video",      "https://youtube.com",                         "#ff6f00"),
-    # Fila 2: 3D · Net
-    16: ("Tinker",   "cad",        "https://tinkercad.com",                       "#00bcd4"),
-    17: ("Thingi",   "verse",      "https://thingiverse.com",                     "#00bcd4"),
-    18: ("MyIP",     "publico",    "https://whatismyipaddress.com",               "#66bb6a"),
-    19: ("Cloudfl.", "dash",       "https://dash.cloudflare.com",                 "#66bb6a"),
-    20: ("AWA",      "admin",      "http://192.168.18.10/admin",                  "#66bb6a"),
-    # Fila 3: News + Empresa
-    24: ("Repúb.",   "lica",       "https://larepublica.pe",                      "#ffc107"),
-    25: ("El Com.",  "ercio",      "https://elcomercio.pe",                       "#ffc107"),
-    26: ("Gestión",  "diario",     "https://gestion.pe",                          "#ffc107"),
-    27: ("Agentica", "Holotech",   "https://agentica.holotech.pe/HOL/inbox/all",  "#26c6da"),
-    28: ("Growatt",  "server",     "https://server.growatt.com/login?lang=en",    "#26c6da"),
-}
+# Misma forma de antes: key → (label, sub, url, color)
+WEB_PAGINA: dict[int, tuple] = {}
+# url → ruta de icono (override del favicon resuelto automáticamente)
+WEB_ICON_OVERRIDE: dict[str, str] = {}
 
-# Overrides de icono. URL http(s) → descarga; ruta absoluta → archivo local.
-WEB_ICON_OVERRIDE = {
-    "https://github.com":              "https://github.githubassets.com/favicons/favicon-dark.png",
-    "https://claude.ai":               "https://api.iconify.design/simple-icons:claude.svg?color=%23d97757",
-    "http://192.168.18.10/admin":      "/usr/share/icons/mate/48x48/categories/preferences-system-network.png",
-}
+
+def reload(cfg=None):
+    """Reconstruye WEB_PAGINA y WEB_ICON_OVERRIDE desde el config TOML."""
+    if cfg is None:
+        from plugins.userconfig import load as _load
+        cfg = _load()
+    WEB_PAGINA.clear()
+    for b in cfg.web.buttons:
+        WEB_PAGINA[b.key] = (b.label, b.sub, b.url, b.color)
+    WEB_ICON_OVERRIDE.clear()
+    WEB_ICON_OVERRIDE.update(cfg.web.icon_overrides)
+    print(f"[USERCONFIG] web: {len(WEB_PAGINA)} botones, "
+          f"{len(WEB_ICON_OVERRIDE)} icon overrides", flush=True)
+
+
+reload()
 
 
 def _favicon_path(url):

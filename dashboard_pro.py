@@ -186,6 +186,7 @@ from plugins import docker   as plugin_docker
 from plugins import clima    as plugin_clima
 from plugins import contexto as plugin_ctx
 from plugins import pedal    as plugin_pedal
+from plugins import userconfig as plugin_userconfig
 APPS_PAGINA = plugin_apps.APPS_PAGINA
 WEB_PAGINA  = plugin_web.WEB_PAGINA
 KEYS_PAGINA = plugin_keys.KEYS_PAGINA
@@ -214,6 +215,43 @@ PAGINAS_PRESS = {
 
 
 # --- Hilos de fondo ---
+
+def tareas_userconfig_watch():
+    """Poll de los TOML que alimentan apps/web/keys/vent.
+
+    Cuando cambia el mtime de cualquiera (~/.config/streamdeb/config.toml o
+    config/default.toml del repo), recarga todos los plugins editables y
+    fuerza un redraw. Errores de schema no tumban el thread: se loguean y
+    los cambios se ignoran hasta el siguiente edit válido."""
+    global forzar_redraw
+    paths = [plugin_userconfig.DEFAULT_CONFIG_PATH,
+             plugin_userconfig.REPO_DEFAULT_PATH]
+    last_mtimes = {p: (p.stat().st_mtime if p.exists() else 0) for p in paths}
+    while True:
+        time.sleep(2)
+        try:
+            changed = False
+            for p in paths:
+                m = p.stat().st_mtime if p.exists() else 0
+                if m != last_mtimes[p]:
+                    last_mtimes[p] = m
+                    changed = True
+            if not changed:
+                continue
+            cfg = plugin_userconfig.load()
+            plugin_apps.reload(cfg)
+            plugin_web.reload(cfg)
+            plugin_keys.reload(cfg)
+            plugin_vent.reload(cfg)
+            print("[USERCONFIG] hot-reload OK", flush=True)
+            forzar_redraw = True
+        except plugin_userconfig.ConfigError as e:
+            print(f"[USERCONFIG] schema error: {e} (cambios descartados)",
+                  flush=True)
+        except Exception as e:
+            print(f"[USERCONFIG] watch error: {type(e).__name__}: {e}",
+                  flush=True)
+
 
 def tareas_red_fondo():
     global mute_activo, volumen_actual
@@ -954,6 +992,7 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
     threading.Thread(target=plugin_sistema.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_pedal.tareas_fondo,   daemon=True).start()
+    threading.Thread(target=tareas_userconfig_watch,     daemon=True).start()
     last_net = psutil.net_io_counters()
     pagina_anterior = None
 

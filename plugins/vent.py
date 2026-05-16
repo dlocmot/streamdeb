@@ -11,29 +11,28 @@ from core.widgets import _nuevo_lienzo, con_marco, dibujar_btn_icono_nav
 
 
 # tecla → (label, x_ini, x_fin, y_ini, y_fin, geometría wmctrl "x,y,w,h")
-# Fila 2 (8..12)  = altura completa (h=1168, y=27)
-# Fila 3 (16..20) = mitad superior (h=584,  y=27)
-# Fila 4 (24..28) = mitad inferior (h=584,  y=611)
-VENT_PAGINA = {
-    # Fila 2 — altura completa
-    8:  ("Izq",    0.00, 1/3,  0.0, 1.0, "0,0,27,1276,1168"),
-    9:  ("Centro", 1/3,  2/3,  0.0, 1.0, "0,1282,27,1276,1168"),
-    10: ("Der",    2/3,  1.00, 0.0, 1.0, "0,2564,27,1276,1168"),
-    11: ("M.Izq",  0.00, 0.50, 0.0, 1.0, "0,0,27,1917,1168"),
-    12: ("M.Der",  0.50, 1.00, 0.0, 1.0, "0,1923,27,1917,1168"),
-    # Fila 3 — mitad superior
-    16: ("Izq↑",   0.00, 1/3,  0.0, 0.5, "0,0,27,1276,584"),
-    17: ("Cen↑",   1/3,  2/3,  0.0, 0.5, "0,1282,27,1276,584"),
-    18: ("Der↑",   2/3,  1.00, 0.0, 0.5, "0,2564,27,1276,584"),
-    19: ("MI↑",    0.00, 0.50, 0.0, 0.5, "0,0,27,1917,584"),
-    20: ("MD↑",    0.50, 1.00, 0.0, 0.5, "0,1923,27,1917,584"),
-    # Fila 4 — mitad inferior
-    24: ("Izq↓",   0.00, 1/3,  0.5, 1.0, "0,0,611,1276,584"),
-    25: ("Cen↓",   1/3,  2/3,  0.5, 1.0, "0,1282,611,1276,584"),
-    26: ("Der↓",   2/3,  1.00, 0.5, 1.0, "0,2564,611,1276,584"),
-    27: ("MI↓",    0.00, 0.50, 0.5, 1.0, "0,0,611,1917,584"),
-    28: ("MD↓",    0.50, 1.00, 0.5, 1.0, "0,1923,611,1917,584"),
-}
+# Data declarativa en config/default.toml; geometrías wmctrl calculadas para
+# 3840×1200 con 27px de margen vertical para el panel MATE.
+VENT_PAGINA: dict[int, tuple] = {}
+
+
+def reload(cfg=None):
+    """Reconstruye VENT_PAGINA desde el config TOML."""
+    if cfg is None:
+        from plugins.userconfig import load as _load
+        cfg = _load()
+    VENT_PAGINA.clear()
+    for b in cfg.vent.buttons:
+        VENT_PAGINA[b.key] = (
+            b.label,
+            b.fraction_x[0], b.fraction_x[1],
+            b.fraction_y[0], b.fraction_y[1],
+            b.wmctrl_geom,
+        )
+    print(f"[USERCONFIG] vent: {len(VENT_PAGINA)} botones", flush=True)
+
+
+reload()
 
 _vent_cache = {}
 
