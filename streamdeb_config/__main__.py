@@ -572,6 +572,10 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self.grid.attach(new, col, row, 1, 1)
 
     def _on_cell_clicked(self, _btn, key):
+        # Bidirectional mirror: click en GUI = press físico en el deck.
+        # streamdeb lee press_queue y dispatcha el handler.
+        self._send_press_to_deck(key)
+        # Selección para edición (independiente del press)
         prev = self.selected_key
         self.selected_key = key
         if prev is not None and prev in self._cells:
@@ -579,6 +583,14 @@ class ConfigWindow(Gtk.ApplicationWindow):
         if key in self._cells:
             self._cells[key].add_css_class("suggested-action")
         self._update_panel()
+
+    def _send_press_to_deck(self, key: int):
+        try:
+            _PREVIEW_ROOT.mkdir(parents=True, exist_ok=True)
+            with (_PREVIEW_ROOT / "press_queue").open("a") as f:
+                f.write(f"{key}\n")
+        except Exception as e:
+            print(f"[GUI] cannot send press: {e}", file=sys.stderr)
 
     # ── panel propiedades (editable) ──
 

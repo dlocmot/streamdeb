@@ -216,6 +216,40 @@ PAGINAS_PRESS = {
 
 # --- Hilos de fondo ---
 
+def tareas_press_inject(deck):
+    """Inyecta presses simulados desde fuera (p.ej. el GUI configurador).
+    Lee `PREVIEW_DIR/press_queue` cada 100 ms: cada línea es un índice de
+    tecla (0..31). Por cada uno dispara boton_presionado(deck, k, True/False)
+    igual que un toque físico, y luego borra el archivo. Sin file → no-op."""
+    path = os.path.join(PREVIEW_DIR, "press_queue")
+    while True:
+        time.sleep(0.1)
+        try:
+            if not os.path.exists(path):
+                continue
+            with open(path, "r") as f:
+                lines = f.readlines()
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            for line in lines:
+                line = line.strip()
+                if not line.isdigit():
+                    continue
+                k = int(line)
+                if 0 <= k <= 31:
+                    try:
+                        boton_presionado(deck, k, True)
+                        time.sleep(0.05)
+                        boton_presionado(deck, k, False)
+                        print(f"[INJECT] key={k}", flush=True)
+                    except Exception as e:
+                        print(f"[INJECT] error key={k}: {e}", flush=True)
+        except Exception as e:
+            print(f"[INJECT] read error: {e}", flush=True)
+
+
 def tareas_userconfig_watch():
     """Poll de los TOML que alimentan apps/web/keys/vent.
 
@@ -993,6 +1027,7 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_sistema.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_pedal.tareas_fondo,   daemon=True).start()
     threading.Thread(target=tareas_userconfig_watch,     daemon=True).start()
+    threading.Thread(target=tareas_press_inject, args=(deck,), daemon=True).start()
     last_net = psutil.net_io_counters()
     pagina_anterior = None
 
