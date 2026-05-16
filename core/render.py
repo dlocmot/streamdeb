@@ -52,11 +52,10 @@ def _dump_tile_preview(tecla: int, fondo: Image.Image):
         page_dir = os.path.join(PREVIEW_DIR, f"page_{_current_page_id}")
         os.makedirs(page_dir, exist_ok=True)
         final_path = os.path.join(page_dir, f"tile_{tecla}.png")
-        # Escritura atómica: tempfile + rename. PIL escribe el PNG directo
-        # al path destino, lo cual deja al lector (GUI) viendo medio archivo
-        # truncado y el tile queda "pegado" hasta el próximo cambio.
+        # Escritura atómica: tempfile + rename. format='PNG' explícito —
+        # PIL infiere por extensión y `.tmp` la rompe.
         tmp_path = final_path + ".tmp"
-        fondo.save(tmp_path)
+        fondo.save(tmp_path, format="PNG")
         os.replace(tmp_path, final_path)
     except Exception:
         pass  # nunca debe tumbar el render
