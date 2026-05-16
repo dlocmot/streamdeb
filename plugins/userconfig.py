@@ -14,6 +14,7 @@ Formato: TOML, requiere Python ≥ 3.11 (tomllib).
 from __future__ import annotations
 
 import os
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -302,6 +303,138 @@ def _check_no_key_collisions(cfg: Config):
 
 
 # ─────────────────────── API pública ───────────────────────
+
+
+# ─────────────────────── serializer (writer) ───────────────────────
+
+
+def _toml_str(s: str) -> str:
+    """TOML basic string con escapado de backslash, comilla y controles."""
+    out = (s.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t"))
+    return f'"{out}"'
+
+
+def _toml_bool(b: bool) -> str:
+    return "true" if b else "false"
+
+
+def _toml_float(f: float) -> str:
+    # Evita 0.333333333... — un decimal con 6 cifras es suficiente para
+    # fracciones de pantalla y queda legible.
+    return f"{f:g}"
+
+
+def _dump(cfg: "Config") -> str:
+    """Serializa cfg a texto TOML. Determinista (mismo cfg → mismo texto)."""
+    L: list[str] = []
+    A = L.append
+    A("# streamdeb config — generado / editado por streamdeb-config")
+    A("# Editable a mano. El servicio recarga en ≤3 s.")
+    A("")
+    A(f"schema_version = {cfg.schema_version}")
+    A("")
+    A("[settings]")
+    A(f"brillo             = {cfg.settings.brillo}")
+    A(f"fallback_seconds   = {cfg.settings.fallback_seconds}")
+    A(f"dim_seconds        = {cfg.settings.dim_seconds}")
+    A(f"profile            = {cfg.settings.profile}")
+    A(f"banner_enabled     = {_toml_bool(cfg.settings.banner_enabled)}")
+    A(f"theme_lcars        = {_toml_str(cfg.settings.theme_lcars)}")
+    A(f"monitor_brightness = {cfg.settings.monitor_brightness}")
+    A("")
+    A("[settings.api]")
+    A(f"host = {_toml_str(cfg.api.host)}")
+    A(f"user = {_toml_str(cfg.api.user)}")
+    A("")
+
+    A("[pages.apps]")
+    A(f"display_name = {_toml_str(cfg.apps.display_name)}")
+    A("")
+    for b in cfg.apps.buttons:
+        A("[[pages.apps.buttons]]")
+        A(f"key      = {b.key}")
+        A(f"category = {_toml_str(b.category)}")
+        A(f"label    = {_toml_str(b.label)}")
+        A(f"command  = {_toml_str(b.command)}")
+        A(f"color    = {_toml_str(b.color)}")
+        if b.icon:
+            A(f"icon     = {_toml_str(b.icon)}")
+        A("")
+
+    A("[pages.web]")
+    A(f"display_name = {_toml_str(cfg.web.display_name)}")
+    A("")
+    for b in cfg.web.buttons:
+        A("[[pages.web.buttons]]")
+        A(f"key   = {b.key}")
+        A(f"label = {_toml_str(b.label)}")
+        A(f"sub   = {_toml_str(b.sub)}")
+        A(f"url   = {_toml_str(b.url)}")
+        A(f"color = {_toml_str(b.color)}")
+        A("")
+    if cfg.web.icon_overrides:
+        A("[pages.web.icon_overrides]")
+        for url, icon in cfg.web.icon_overrides.items():
+            A(f"{_toml_str(url)} = {_toml_str(icon)}")
+        A("")
+
+    A("[pages.keys]")
+    A(f"display_name = {_toml_str(cfg.keys.display_name)}")
+    A(f"color        = {_toml_str(cfg.keys.color)}")
+    A("")
+    for b in cfg.keys.buttons:
+        A("[[pages.keys.buttons]]")
+        A(f"key    = {b.key}")
+        A(f"label  = {_toml_str(b.label)}")
+        if b.icon:
+            A(f"icon   = {_toml_str(b.icon)}")
+        if b.action.type == "combo":
+            A(f'action = {{ type = "combo", keys = {_toml_str(b.action.keys)} }}')
+        else:
+            A(f'action = {{ type = "type", text = {_toml_str(b.action.text)} }}')
+        A("")
+
+    A("[pages.vent]")
+    A(f"display_name = {_toml_str(cfg.vent.display_name)}")
+    A("")
+    for b in cfg.vent.buttons:
+        A("[[pages.vent.buttons]]")
+        A(f"key         = {b.key}")
+        A(f"label       = {_toml_str(b.label)}")
+        A(f"fraction_x  = [{_toml_float(b.fraction_x[0])}, "
+          f"{_toml_float(b.fraction_x[1])}]")
+        A(f"fraction_y  = [{_toml_float(b.fraction_y[0])}, "
+          f"{_toml_float(b.fraction_y[1])}]")
+        A(f"wmctrl_geom = {_toml_str(b.wmctrl_geom)}")
+        A("")
+    return "\n".join(L)
+
+
+def save(cfg: "Config", path: Optional[Path] = None) -> Path:
+    """Escribe cfg como TOML atómicamente (tempfile + rename).
+    Crea el directorio padre si falta. Path por defecto:
+    `~/.config/streamdeb/config.toml`."""
+    target = Path(path) if path else DEFAULT_CONFIG_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = _dump(cfg)
+    fd, tmp = tempfile.mkstemp(dir=str(target.parent),
+                                prefix=".config-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, target)
+    except Exception:
+        try: os.unlink(tmp)
+        except Exception: pass
+        raise
+    return target
+
+
+# ─────────────────────── loader ───────────────────────
 
 
 def load(path: Optional[Path] = None) -> Config:
