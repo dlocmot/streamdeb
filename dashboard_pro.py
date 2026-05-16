@@ -68,6 +68,10 @@ ping_history = {k: deque(maxlen=PING_HIST_LEN) for k in ("ping_gw", "ping_dns1",
 
 pagina_actual = 1     # 1=sistema · 2=API · 3=multimedia · 4=apps · 5=configuración
 forzar_redraw = False
+# Event para despertar el main loop inmediatamente. Cualquier callback
+# que muta state visible (press inyectado, _accion_boton, hooks pomo/ctx,
+# auto-fallback) lo dispara y el loop redibuja sin esperar el sleep.
+_redraw_event = threading.Event()
 brillo_actual    = 75
 tiempo_fallback  = 300    # s sin interacción en otra pág. → vuelve a SIS
 tiempo_dim       = 1800   # s sin interacción → atenúa el deck
@@ -709,6 +713,7 @@ def boton_presionado(deck, tecla, estado):
         _despertar = True
         return
     threading.Thread(target=_accion_boton, args=(deck, tecla), daemon=True).start()
+    _redraw_event.set()  # despierta el main loop sin esperar el sleep
 
 
 # --- Inicialización ---
@@ -1124,7 +1129,10 @@ def iniciar_dashboard():
                 _invalidar_render_cache()
                 print("[OK] reconectado", flush=True)
 
-            time.sleep(1)
+            # En vez de sleep fijo: wait hasta 1s O hasta que algo dispare
+            # el event (press físico, inject, hooks de pomodoro/ctx/etc).
+            _redraw_event.wait(timeout=1)
+            _redraw_event.clear()
 
     finally:
         try: deck.reset()

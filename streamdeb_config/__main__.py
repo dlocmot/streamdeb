@@ -299,10 +299,9 @@ class ConfigWindow(Gtk.ApplicationWindow):
         body.append(scroller)
 
         self._reload_from_disk()
-        # Watcher: 150 ms polling — mirror se siente en vivo. Cada tick
-        # son 32 stat() + diff por-tile; solo se repintan las celdas cuyo
-        # mtime cambió (no un rebuild del grid entero).
-        GLib.timeout_add(150, self._poll_external_changes)
+        # 50 ms — mirror prácticamente instantáneo. Diff por tile + swap
+        # de paintable es barato; sin rebuild del grid en cada tick.
+        GLib.timeout_add(50, self._poll_external_changes)
 
     # ── carga / save ──
 
