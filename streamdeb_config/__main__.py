@@ -151,10 +151,15 @@ class ConfigWindow(Gtk.ApplicationWindow):
         self.page_title = Gtk.Label(xalign=0)
         self.page_title.add_css_class("title-2")
         center.append(self.page_title)
+        # Marco negro alrededor del grid, simulando el deck físico
+        deck_bg = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                           halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
+                           vexpand=True)
+        deck_bg.add_css_class("deck-bg")
         self.grid = Gtk.Grid(row_spacing=10, column_spacing=10,
-                              halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
-                              vexpand=True)
-        center.append(self.grid)
+                              halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        deck_bg.append(self.grid)
+        center.append(deck_bg)
         body.append(center)
 
         body.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
@@ -704,11 +709,40 @@ class ConfigWindow(Gtk.ApplicationWindow):
 # ─────────────────────── application ───────────────────────
 
 
+_CSS = b"""
+.deck-bg {
+    background-color: #000000;
+    border-radius: 12px;
+    padding: 14px;
+}
+.deck-bg button.flat {
+    background-color: transparent;
+}
+.deck-bg button.flat:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+.deck-bg button.suggested-action {
+    background-color: rgba(255, 255, 255, 0.18);
+}
+"""
+
+
+def _install_css():
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(),
+        provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+
+
 class ConfigApp(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="com.streamdeb.config")
 
     def do_activate(self):
+        _install_css()
         ConfigWindow(self).present()
 
 
