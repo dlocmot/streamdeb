@@ -592,7 +592,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
         if self.current_page.startswith("view_"):
             pid = int(self.current_page[5:])
             self.page_title.set_text(
-                f"{VIEW_ONLY_PAGES.get(pid, '?')} (view-only — sin TOML)")
+                f"{PAGE_FRIENDLY.get(pid, f'Page {pid}')} (view-only — sin TOML)")
             by_key = {}
         else:
             page = getattr(self.cfg, self.current_page)
@@ -731,7 +731,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
         if self.current_page.startswith("view_"):
             pid = int(self.current_page[5:])
             note = Gtk.Label(
-                label=f"Página '{VIEW_ONLY_PAGES.get(pid, pid)}' es view-only.\n"
+                label=f"Página '{PAGE_FRIENDLY.get(pid, f'Page {pid}')}' es view-only.\n"
                       f"Su contenido lo genera streamdeb en runtime (widgets "
                       f"dinámicos) y no se almacena en TOML.",
                 xalign=0, wrap=True, max_width_chars=34)
