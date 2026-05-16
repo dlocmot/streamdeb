@@ -295,16 +295,28 @@ class ConfigWindow(Gtk.ApplicationWindow):
 
         # Mirror del deck: si los tiles de la página actual cambiaron
         # (deck redibujó), repintamos el grid sin tocar el TOML cacheado.
+        # NOTE: mtime de un directorio no cambia al sobrescribir archivos
+        # in-place en ext4, así que necesitamos escanear los PNG.
         page_id = PAGE_IDS.get(self.current_page)
         if page_id is not None:
             page_dir = _PREVIEW_ROOT / f"page_{page_id}"
-            try:
-                m = page_dir.stat().st_mtime if page_dir.exists() else 0
-            except OSError:
-                m = 0
+            latest = 0.0
+            if page_dir.exists():
+                try:
+                    for f in page_dir.iterdir():
+                        if f.suffix != ".png":
+                            continue
+                        try:
+                            m = f.stat().st_mtime
+                            if m > latest:
+                                latest = m
+                        except OSError:
+                            pass
+                except OSError:
+                    pass
             key = ("tiles", self.current_page)
-            if self._mtimes.get(key, 0) != m and m > 0:
-                self._mtimes[key] = m
+            if latest > 0 and self._mtimes.get(key, 0) != latest:
+                self._mtimes[key] = latest
                 self._populate_grid()
         return True  # keep polling
 
