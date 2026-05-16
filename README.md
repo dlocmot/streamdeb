@@ -3,6 +3,17 @@
 Two independent Python applications for the Elgato Stream Deck XL,
 running on Debian:
 
+![streamdeb-config — APP page editing](screenshots/01-apps.png)
+
+The GUI configurator (`streamdeb-config`) mirrors the deck output
+tile-by-tile in real time. The first screenshot above is the **APP**
+launcher page (editable). Below: the **SIS** view-only page reflecting
+the dashboard's live widgets — clock, CPU cores, temperature, RAM,
+weather, pomodoro, network, docker — exactly as the physical deck
+renders them.
+
+![streamdeb-config — SIS live mirror](screenshots/02-sis-live-mirror.png)
+
 | App                  | Host                          | Service                | Purpose                                  |
 |----------------------|-------------------------------|------------------------|------------------------------------------|
 | `dashboard_pro.py`   | PC `dinamo` (Debian)          | `streamdeb` (--user)   | General-purpose dashboard (5 pages)      |
