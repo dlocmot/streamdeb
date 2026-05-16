@@ -42,7 +42,7 @@ NAV_LAYOUT: dict[int, tuple[str, str]] = {
     4: ("CTX",   "#22dd88"),
     # 5: libre
     6: ("KEYS",  "#ffcc33"),
-    7: ("Win",  "#66ddff"),
+    7: ("WIN",  "#66ddff"),
 }
 
 # Paths de iconos para los nav iconizados — copiados de dashboard_pro.py.
@@ -79,7 +79,7 @@ NAV_KEY_FOR_PAGE: dict[str, int] = {
 # plugins/subpáginas.
 PAGE_FRIENDLY: dict[int, str] = {
     1: "SIS",    2: "AWA",     3: "MEDIA",   4: "APP",
-    5: "CONF",   6: "WEB",     7: "KEYS",    8: "Win",
+    5: "CONF",   6: "WEB",     7: "KEYS",    8: "WIN",
     9: "IDLE",   10: "DOCKER", 11: "CLIMA",  12: "CTX",
     13: "CORES", 14: "PINGS",  15: "NET",    16: "TEMPS",
 }
