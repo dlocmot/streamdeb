@@ -14,6 +14,20 @@ renders them.
 
 ![streamdeb-config — SIS live mirror](screenshots/02-sis-live-mirror.png)
 
+### Visual profiles and themes
+
+Three render profiles (toggleable from CONF). Profile 1 paints
+coloured frames around every tile; profile 2 (default) is the clean
+look above; profile 3 is LCARS chrome with thirteen sub-themes.
+
+| Profile 1 + galaxy wallpaper | LCARS · voyager | LCARS · matrix | LCARS · tron |
+| --- | --- | --- | --- |
+| ![p1](screenshots/05-perfil1-galaxy.png) | ![voyager](screenshots/06-lcars-voyager.png) | ![matrix](screenshots/07-lcars-matrix.png) | ![tron](screenshots/08-lcars-tron-sis.png) |
+
+Wallpapers live in `~/Pictures/wallpapers/` — drop any `.jpg`/`.png`
+there and the deck auto-detects them (no restart). Rotate with the
+wallpaper key in CONF; long-press turns it off.
+
 | App                  | Host                          | Service                | Purpose                                  |
 |----------------------|-------------------------------|------------------------|------------------------------------------|
 | `dashboard_pro.py`   | PC `dinamo` (Debian)          | `streamdeb` (--user)   | General-purpose dashboard (5 pages)      |
