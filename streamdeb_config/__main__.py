@@ -25,6 +25,7 @@ from core import widgets as W                                   # noqa: E402
 from core.iconos import buscar_icono                            # noqa: E402
 from core.keyboard import parse_combo                           # noqa: E402
 from streamdeb_config.picker_app import AppPicker               # noqa: E402
+from streamdeb_config.picker_icon import IconPicker             # noqa: E402
 
 
 THUMB_PX = 96    # tamaño nativo del deck XL (entrada a core/widgets)
@@ -441,7 +442,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self._panel_entry(row_idx, "Color", btn.color,
                               lambda v: self._set_field(btn, "color", v))
             row_idx += 1
-            self._panel_entry(row_idx, "Icono", btn.icon or "",
+            self._panel_icon_entry(row_idx, btn.icon or "",
                               lambda v: self._set_field(btn, "icon", v or None))
         elif page_name == "web":
             self._panel_entry(row_idx, "Label", btn.label,
@@ -459,7 +460,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
             self._panel_entry(row_idx, "Label", btn.label,
                               lambda v: self._set_field(btn, "label", v))
             row_idx += 1
-            self._panel_entry(row_idx, "Icono", btn.icon or "",
+            self._panel_icon_entry(row_idx, btn.icon or "",
                               lambda v: self._set_field(btn, "icon", v or None))
             row_idx += 1
             # action: dropdown + entry
@@ -511,6 +512,25 @@ class ConfigWindow(Gtk.ApplicationWindow):
         entry.set_width_chars(28)
         entry.connect("changed", lambda e: self._on_entry_changed(e, on_change))
         self._panel_row(row, label, entry)
+
+    def _panel_icon_entry(self, row: int, initial: str, on_change):
+        """Entry para nombre de icono + botón que abre el icon picker."""
+        entry = Gtk.Entry()
+        entry.set_text(initial)
+        entry.set_hexpand(True)
+        entry.connect("changed", lambda e: self._on_entry_changed(e, on_change))
+        pick = Gtk.Button.new_from_icon_name("system-search-symbolic")
+        pick.set_tooltip_text("Buscar en el tema de iconos del sistema")
+        pick.connect("clicked", lambda _: self._open_icon_picker(entry))
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        hbox.append(entry)
+        hbox.append(pick)
+        self._panel_row(row, "Icono", hbox)
+
+    def _open_icon_picker(self, entry: Gtk.Entry):
+        def on_pick(name: str):
+            entry.set_text(name)  # dispara "changed" → setter + dirty + redraw
+        IconPicker(self, on_pick, initial=entry.get_text()).present()
 
     def _on_entry_changed(self, entry: Gtk.Entry, setter):
         setter(entry.get_text())
