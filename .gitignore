@@ -8,3 +8,9 @@ build/
 *.log
 # El .deb se construye con ./packaging/build.sh — no versionado
 streamdeb-config_*_all.deb
+
+# Credenciales del plugin Growatt (user/pass). NUNCA versionar.
+plugins/growatt/credentials.toml
+# Screenshots de referencia del usuario (contiene PII de la planta)
+plugins/growatt/*.png
+plugins/growatt/*.jpg

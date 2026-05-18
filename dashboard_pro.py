@@ -191,6 +191,7 @@ from plugins import clima    as plugin_clima
 from plugins import contexto as plugin_ctx
 from plugins import pedal    as plugin_pedal
 from plugins import userconfig as plugin_userconfig
+from plugins import growatt  as plugin_growatt
 APPS_PAGINA = plugin_apps.APPS_PAGINA
 WEB_PAGINA  = plugin_web.WEB_PAGINA
 KEYS_PAGINA = plugin_keys.KEYS_PAGINA
@@ -215,6 +216,7 @@ PAGINAS_PRESS = {
     8:  plugin_vent.on_press,
     10: plugin_docker.on_press_dentro_pagina,
     12: plugin_ctx.on_press,
+    17: plugin_growatt.on_press,
 }
 
 
@@ -467,7 +469,6 @@ def _accion_boton(deck, tecla):
             pagina_actual = 12
             forzar_redraw = True
         return
-    # tecla 5 nav libre. WEB (page 6) se entra desde CTX en browsers.
     if tecla == 6:
         if pagina_actual != 7:
             pagina_actual = 7
@@ -509,6 +510,11 @@ def _accion_boton(deck, tecla):
         elif tecla == 10:
             if pagina_actual != 16:
                 pagina_actual = 16
+                forzar_redraw = True
+        # Tecla 11 SIS (PV widget): abre página GROWATT (id 17)
+        elif tecla == 11:
+            if pagina_actual != 17:
+                pagina_actual = 17
                 forzar_redraw = True
         return
 
@@ -880,6 +886,7 @@ def botones_navegacion(deck, tam):
     p_ctx  = plugin_ctx.dibujar_boton_ctx_nav(deck, tam, activo=(pagina_actual == 12))
     # CONF se entra con long-press ≥2s en SIS (no tiene nav button).
     # WEB se entra desde CTX cuando hay un browser activo (Firefox/Brave).
+    # GROWATT (page 17) se entra desde SIS tecla 11 (widget_para_sistema).
     return {0: p1, 1: p2, 2: p3, 3: p4, 4: p_ctx, 6: p_keys, 7: p_vent}
 
 # Pomodoro / clima viven en plugins/. El plugin pomo necesita un hook
@@ -924,6 +931,7 @@ def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets.update(plugin_clima.widget_para_sistema(deck, tam))
     widgets.update(plugin_docker.widget_para_sistema(deck, tam))
     widgets.update(plugin_pedal.widget_para_sistema(deck, tam))
+    widgets.update(plugin_growatt.widget_para_sistema(deck, tam))
     return plugin_sistema.render_pagina_sistema(
         deck, tam, botones_navegacion(deck, tam),
         last_net, cur_net, net_info, _ping_pct_relativo,
@@ -978,6 +986,9 @@ def render_pagina_contexto(deck, tam):
 def render_pagina_vent(deck, tam):
     return plugin_vent.render_pagina_vent(deck, tam, botones_navegacion(deck, tam))
 
+def render_pagina_growatt(deck, tam):
+    return plugin_growatt.render_pagina_growatt(deck, tam, botones_navegacion(deck, tam))
+
 def render_pagina_config(deck, tam):
     return plugin_conf.render_pagina_config(
         deck, tam, botones_navegacion(deck, tam),
@@ -1006,6 +1017,7 @@ PAGINAS_RENDER = {
     14: render_pagina_pings,
     15: render_pagina_net,
     16: render_pagina_temps,
+    17: render_pagina_growatt,
 }
 
 
@@ -1045,6 +1057,7 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
     threading.Thread(target=plugin_sistema.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_pedal.tareas_fondo,   daemon=True).start()
+    threading.Thread(target=plugin_growatt.tareas_fondo, daemon=True).start()
     threading.Thread(target=tareas_userconfig_watch,     daemon=True).start()
     threading.Thread(target=tareas_press_inject, args=(deck,), daemon=True).start()
     last_net = psutil.net_io_counters()
@@ -1072,7 +1085,7 @@ def iniciar_dashboard():
 
             # Fallback por inactividad: a banner si activado, si no a SIS.
             # Excluyo WEB(6) y KEYS(7) — uso prolongado — y banner (9) consigo mismo.
-            if (pagina_actual not in (6, 7, 9)
+            if (pagina_actual not in (6, 7, 9, 17)
                     and (ahora - ultimo_toque) > tiempo_fallback):
                 pagina_actual = 9 if banner_enabled else 1
                 forzar_redraw = True
