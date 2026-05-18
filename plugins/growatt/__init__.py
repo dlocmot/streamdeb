@@ -11,6 +11,7 @@ Layout (página 17, 8×4):
   Fila 2  (16-23): BATERÍA + RED
   Fila 3  (24-31): CARGA + TOTALES
 """
+import math
 import os
 import time
 import threading
@@ -436,159 +437,388 @@ def _fmt_age(ts):
     return f"{age//3600}h"
 
 
+# ── Icon primitives ────────────────────────────────────────────────────────
+
+def _sol(d, cx, cy, r, color):
+    """Sol clásico: disco + 8 rayos (usado por iconos secundarios)."""
+    d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=color)
+    for deg in range(0, 360, 45):
+        a  = math.radians(deg)
+        x1 = int(cx + (r+3)*math.cos(a))
+        y1 = int(cy + (r+3)*math.sin(a))
+        x2 = int(cx + (r+8)*math.cos(a))
+        y2 = int(cy + (r+8)*math.sin(a))
+        d.line((x1, y1, x2, y2), fill=color, width=2)
+
+
+def _panel_solar_icon(d, cx, cy, color):
+    """Rejilla de panel solar 3×2 (como en la imagen Growatt)."""
+    cols, rows = 3, 2
+    cell_w, cell_h, gap = 9, 6, 1
+    total_w = cols * cell_w + (cols - 1) * gap
+    total_h = rows * cell_h + (rows - 1) * gap
+    x0 = cx - total_w // 2
+    y0 = cy - total_h // 2
+    for r in range(rows):
+        for c in range(cols):
+            x = x0 + c * (cell_w + gap)
+            y = y0 + r * (cell_h + gap)
+            d.rectangle((x, y, x + cell_w, y + cell_h), fill=color)
+    # Marco exterior
+    d.rectangle((x0 - 1, y0 - 1, x0 + total_w + 1, y0 + total_h + 1),
+                outline=color, width=1)
+
+
+def _bat_icon(d, x1, y1, x2, y2, soc_pct, fill_col):
+    """Batería horizontal: caja + terminal + nivel de carga."""
+    d.rectangle((x1, y1, x2, y2), outline="#888888", width=2)
+    my = (y1+y2)//2
+    d.rectangle((x2, my-3, x2+5, my+3), fill="#888888")
+    iw = x2-x1-4
+    fw = int(iw * max(0, min(100, soc_pct)) / 100)
+    if fw > 0:
+        d.rectangle((x1+2, y1+2, x1+2+fw, y2-2), fill=fill_col)
+
+
+def _casa_icon(d, cx, top_y, size, color):
+    """Casa reconocible: tejado poco pronunciado + cuerpo alto + puerta + chimenea."""
+    # Proporciones: tejado corto, cuerpo 2× más alto → no parece flecha
+    roof_h  = max(6, int(size * 0.35))
+    body_h  = int(size * 0.75)
+    body_w  = size
+    eave    = int(size * 0.1)          # vuelo del alero (tejado más ancho)
+
+    body_top  = top_y + roof_h
+    body_bot  = body_top + body_h
+    body_left  = cx - body_w // 2
+    body_right = cx + body_w // 2
+
+    # Chimenea (antes del tejado para que el tejado la cubra en la base)
+    chim_w = max(3, size // 7)
+    chim_h = max(4, int(roof_h * 0.6))
+    chim_x = cx + size // 5
+    d.rectangle((chim_x, top_y - chim_h + 2, chim_x + chim_w, body_top + 1), fill=color)
+
+    # Tejado: triángulo con alero — más ancho que el cuerpo
+    d.polygon([(cx, top_y),
+               (body_left - eave, body_top),
+               (body_right + eave, body_top)], fill=color)
+
+    # Cuerpo
+    d.rectangle((body_left, body_top, body_right, body_bot), fill=color)
+
+    # Puerta: recorte transparente en la parte inferior central
+    door_w = max(5, body_w // 3)
+    door_h = int(body_h * 0.45)
+    d.rectangle((cx - door_w // 2, body_bot - door_h,
+                 cx + door_w // 2, body_bot),
+                fill=(0, 0, 0, 0))
+
+
+def _rayo_icon(d, cx, y1, y2, color, width=3):
+    """Rayo zigzag para icono de red eléctrica."""
+    my = (y1+y2)//2
+    pts = [(cx+6, y1), (cx-3, my), (cx+4, my), (cx-5, y2)]
+    d.line(pts, fill=color, width=width)
+
+
+def _inv_icon(d, cx, cy, size, color):
+    """Inversor: caja redondeada + onda sinusoidal interior."""
+    h = size//2
+    d.rounded_rectangle((cx-h, cy-h, cx+h, cy+h), radius=4, outline=color, width=2)
+    pts = []
+    for i in range(21):
+        t = i / 20 * 2 * math.pi
+        x = cx - h + 4 + i*(size-8)//20
+        y = cy + int((h-4)*math.sin(t))
+        pts.append((x, y))
+    if len(pts) >= 2:
+        d.line(pts, fill=color, width=2)
+
+
+def _chrome_std(d, tam, titulo, color):
+    """Chrome estándar: marco redondeado + header + separador. Devuelve color efectivo."""
+    W, H = tam
+    if es_lcars():
+        color, _ = _lcars_chrome(d, tam, titulo, color, stem=False)
+    else:
+        if con_marco():
+            d.rounded_rectangle((4, 4, W-5, H-5), radius=10, outline=color, width=2)
+        f = ImageFont.truetype(FONT_PATH, 11)
+        d.text((W//2, 14), titulo, font=f, fill=color, anchor="mm")
+        d.line((8, 24, W-9, 24), fill=color, width=1)
+    return color
+
+
+# ── Flow panels (3×3 izquierdo) ────────────────────────────────────────────
+
+def _panel_solar(deck, tam, pv_w, pv_today, fuente="SOL", fuente_col="#ffcc00"):
+    """Key 9: rejilla solar + píldora de fuente actual muy visible + W."""
+    col = "#ffcc00" if pv_w > 10 else "#888866"
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    col  = _chrome_std(d, tam, "Solar", col)
+
+    # Rejilla de panel solar (iconografía real Growatt)
+    _panel_solar_icon(d, W//2, 37, col)
+
+    # Píldora de fuente actual — fondo sólido de color, texto negro
+    px, py, pr, ph = W//2 - 24, 52, 7, 18
+    d.rounded_rectangle((px, py, px+48, py+ph), radius=pr, fill=fuente_col)
+    f_fuente = ImageFont.truetype(FONT_PATH, 12)
+    d.text((W//2, py + ph//2), fuente, font=f_fuente, fill="black", anchor="mm")
+
+    # Potencia PV y acumulado hoy
+    f_v = ImageFont.truetype(FONT_PATH, 11)
+    f_s = ImageFont.truetype(FONT_PATH, 9)
+    d.text((W//2, 78), _fmt_power(pv_w),      font=f_v, fill="white",   anchor="mm")
+    d.text((W//2, 89), _fmt_energy(pv_today),  font=f_s, fill="#aaaaaa", anchor="mm")
+    return img
+
+
+def _panel_inversor(deck, tam, status, online, load_w):
+    """Key 9: icono inversor + estado + consumo actual."""
+    col = "#33ccff"
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    col = _chrome_std(d, tam, "Inversor", col)
+    _inv_icon(d, W//2, 44, 22, col)
+    f_v = ImageFont.truetype(FONT_PATH, 11)
+    f_s = ImageFont.truetype(FONT_PATH, 9)
+    st_col = "#33ff33" if online else "#ff3333"
+    d.text((W//2, 67), status[:10],      font=f_v, fill=st_col,   anchor="mm")
+    d.text((W//2, 80), _fmt_power(load_w), font=f_s, fill="#aaaaaa", anchor="mm")
+    return img
+
+
+def _panel_red_now(deck, tam, grid_w, grid_v):
+    """Key 10: icono rayo + W importando/exportando."""
+    if   grid_w < -50:  col = "#33ff33"
+    elif grid_w > 200:  col = "#ff4444"
+    elif grid_w >  50:  col = "#ffaa00"
+    else:               col = "#00ddff"
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    col = _chrome_std(d, tam, "Red", col)
+    _rayo_icon(d, W//2, 28, 55, col)
+    f_v = ImageFont.truetype(FONT_PATH, 14)
+    f_s = ImageFont.truetype(FONT_PATH, 9)
+    d.text((W//2, 63), _fmt_power(grid_w), font=f_v, fill="white",   anchor="mm")
+    if   grid_w < -5:  txt, tc = "↑ Exportando", "#33ff33"
+    elif grid_w >  5:  txt, tc = "↓ Importando", "#ff4444"
+    else:              txt, tc = "Neutro",        "#666666"
+    d.text((W//2, 76), txt, font=f_s, fill=tc, anchor="mm")
+    return img
+
+
+def _panel_pv_acum(deck, tam, pv_today, pv_total):
+    """Key 16: kWh hoy + kWh total acumulado."""
+    col = "#ffcc00"
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    col = _chrome_std(d, tam, "PV Acum", col)
+    f_l = ImageFont.truetype(FONT_PATH, 9)
+    f_v = ImageFont.truetype(FONT_PATH, 13)
+    d.text((W//2, 37), "Hoy",               font=f_l, fill="#aaaaaa", anchor="mm")
+    d.text((W//2, 51), _fmt_energy(pv_today), font=f_v, fill=col,       anchor="mm")
+    d.line((12, 61, W-13, 61), fill="#333333", width=1)
+    d.text((W//2, 71), "Total",              font=f_l, fill="#aaaaaa", anchor="mm")
+    d.text((W//2, 83), _fmt_energy(pv_total), font=f_v, fill=col,       anchor="mm")
+    return img
+
+
+def _panel_consumo(deck, tam, load_w, load_today):
+    """Key 18: icono casa grande + W consumo + kWh hoy."""
+    col = "#00ddff"
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    col = _chrome_std(d, tam, "Consumo", col)
+    _casa_icon(d, W//2, 25, 24, col)   # casa más grande
+    f_v = ImageFont.truetype(FONT_PATH, 13)
+    f_s = ImageFont.truetype(FONT_PATH, 9)
+    d.text((W//2, 68), _fmt_power(load_w),           font=f_v, fill="white",   anchor="mm")
+    d.text((W//2, 79), f"Hoy {_fmt_energy(load_today)}", font=f_s, fill="#aaaaaa", anchor="mm")
+    return img
+
+
+def _panel_red_hoy(deck, tam, import_kwh, export_kwh):
+    """Key 18: kWh importados hoy / kWh exportados hoy."""
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    _chrome_std(d, tam, "Red Hoy", "#ff4444")
+    f_l = ImageFont.truetype(FONT_PATH, 9)
+    f_v = ImageFont.truetype(FONT_PATH, 13)
+    d.text((W//2, 37), "↓ Import",               font=f_l, fill="#ff4444", anchor="mm")
+    d.text((W//2, 51), _fmt_energy(import_kwh),   font=f_v, fill="#ff4444", anchor="mm")
+    d.line((12, 61, W-13, 61), fill="#333333", width=1)
+    d.text((W//2, 71), "↑ Export",               font=f_l, fill="#33ff33", anchor="mm")
+    d.text((W//2, 83), _fmt_energy(export_kwh),   font=f_v, fill="#33ff33", anchor="mm")
+    return img
+
+
+def _panel_bateria_icon(deck, tam, soc, bat_color):
+    """Key 24: icono batería horizontal + SOC%."""
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    bat_color = _chrome_std(d, tam, "Batería", bat_color)
+    soc_val = soc if soc is not None else 0
+    _bat_icon(d, W//2-22, 30, W//2+22, 49, soc_val, bat_color)
+    f_v = ImageFont.truetype(FONT_PATH, 18)
+    soc_txt = f"{soc:.0f}%" if soc is not None else "N/D"
+    d.text((W//2, 68), soc_txt, font=f_v, fill=bat_color, anchor="mm")
+    return img
+
+
+def _panel_energia_card(deck, tam, titulo, w_now, kwh_hoy, color):
+    """Card estilo Growatt: título + círculo + kW ahora + kWh hoy."""
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    color = _chrome_std(d, tam, titulo, color)
+    cx, cy, r = W//2, 42, 11
+    d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=color)
+    f_v = ImageFont.truetype(FONT_PATH, 13)
+    f_s = ImageFont.truetype(FONT_PATH, 9)
+    d.text((W//2, 62), _fmt_power(w_now),      font=f_v, fill="white",   anchor="mm")
+    d.text((W//2, 75), _fmt_energy(kwh_hoy),   font=f_s, fill="#aaaaaa", anchor="mm")
+    return img
+
+
+def _panel_bat_flujo(deck, tam, bat_w, bat_v, bat_color):
+    """Key 25: dirección flujo batería + W + V."""
+    img = _nuevo_lienzo(tam)
+    d   = ImageDraw.Draw(img)
+    W, H = tam
+    bat_color = _chrome_std(d, tam, "Bat Flujo", bat_color)
+    f_v = ImageFont.truetype(FONT_PATH, 14)
+    f_s = ImageFont.truetype(FONT_PATH, 9)
+    if   bat_w >  5:  arrow, fc = "↑ Cargando", "#33ff33"
+    elif bat_w < -5:  arrow, fc = "↓ Descarga", "#ff9933"
+    else:             arrow, fc = "— Idle",      "#666666"
+    d.text((W//2, 44), arrow,             font=f_s, fill=fc,       anchor="mm")
+    d.text((W//2, 60), _fmt_power(bat_w), font=f_v, fill=fc,       anchor="mm")
+    if bat_v:
+        d.text((W//2, 74), f"{bat_v:.1f} V", font=f_s, fill="#aaaaaa", anchor="mm")
+    return img
+
+
 def render_pagina_growatt(deck, tam, nav_imgs):
-    """Renderiza la página GROWATT. nav_imgs ya trae botones de fila 0."""
+    """Renderiza la página GROWATT. nav_imgs ya trae botones de fila 0.
+
+    Layout (3×3 izquierdo = flujo energético, 5 cols derecha = detalle):
+      Col 0-2, fila 1: Solar · Inversor · Red
+      Col 0-2, fila 2: PV Acum · Consumo · Red Hoy
+      Col 0-2, fila 3: Batería · Bat Flujo · Self%
+    """
     with _lock:
         info = dict(gw_info)
 
     online = info["online"]
     err    = info.get("error")
 
-    # Colores semánticos
-    yellow  = "#ffcc00"   # sol / PV
-    green   = "#33ff33"   # batería OK / export
-    red     = "#ff3333"   # offline / fault / import alto
-    cyan    = "#00ddff"   # red / load
-    grey    = "#666666"
+    yellow = "#ffcc00"
+    green  = "#33ff33"
+    red    = "#ff3333"
+    cyan   = "#00ddff"
+    grey   = "#666666"
 
-    # PV color: amarillo si produce, gris si no
-    pv_color = yellow if info["pv_power"] > 10 else grey
-    # Batería: verde si SOC>50, amarillo 20-50, rojo <20, gris si sin batería
     soc = info["bat_soc"]
-    if soc is None:
-        bat_color = grey
-    elif soc >= 50:
-        bat_color = green
-    elif soc >= 20:
-        bat_color = yellow
-    else:
-        bat_color = red
-    # Red: verde si exportamos (grid_power<0), cyan neutral, rojo si importamos mucho
-    gp = info["grid_power"]
-    if gp < -50:    grid_color = green
-    elif gp > 500:  grid_color = red
-    elif gp > 50:   grid_color = yellow
-    else:           grid_color = cyan
+    if soc is None:    bat_color = grey
+    elif soc >= 50:    bat_color = green
+    elif soc >= 20:    bat_color = yellow
+    else:              bat_color = red
+
+    gp_w    = info["grid_power"]
+    grid_v  = info.get("grid_v", 0)
+    grid_hz = info.get("grid_hz", 0)
 
     imgs = dict(nav_imgs)
 
     if not online and err:
-        # Banner de error en mitad de la pantalla
-        imgs[12] = dibujar_panel_2lineas(deck, tam, "ERROR", err[:24], red)
-        imgs[19] = dibujar_panel_info(deck, tam, "Reintento", "30s", grey)
-        imgs[20] = dibujar_panel_info(deck, tam, "Refresh", "↻ Tap", cyan)
-        imgs[28] = dibujar_panel_info(deck, tam, "Planta", info["plant_name"][:8], grey)
+        imgs[8]  = dibujar_panel_2lineas(deck, tam, "ERROR", err[:24], red)
+        imgs[16] = dibujar_panel_info(deck, tam, "Reintento", "30s",  grey)
+        imgs[24] = dibujar_panel_info(deck, tam, "Planta", info["plant_name"][:8], grey)
+        imgs[15] = dibujar_panel_info(deck, tam, "↻ Refresh", "Tap", cyan)
+        imgs[31] = dibujar_panel_info(deck, tam, "↻ Refresh", "Tap", cyan)
         return imgs
 
-    # --- Fila 1: POTENCIAS EN VIVO (panel principal Growatt) ---
-    # Replica los 3 valores que muestra el dashboard web en grande:
-    # PV ahora · Consumo ahora · Cargando batería ahora.
     pv_w   = info["pv_power"]
     load_w = info["load_power"]
-    bat_w  = info["bat_power"]  # +carga, -descarga
+    bat_w  = info["bat_power"]
 
-    # Escala 0..100% basada en 5kW (capacidad Pmax del inversor)
-    PMAX = 5000.0
-    pv_pct   = min(100, int(pv_w   * 100 / PMAX)) if pv_w   > 0 else 0
-    load_pct = min(100, int(load_w * 100 / PMAX)) if load_w > 0 else 0
+    # ── 3×3 flujo — esquinas vacías, cruces con datos ─────────────────────
+    #
+    #   8:vacío     9:☀ SOLAR   10:vacío
+    #  16:⚡ Red   17:INVERSOR  18:🏠 Carga
+    #  24:vacío    25:🔋 BAT   26:vacío
+    #
+    fuente_lbl, fuente_col = _fuente_actual(info)
+    imgs[9]  = _panel_solar(deck, tam, pv_w, info["pv_today"], fuente_lbl, fuente_col)
+    imgs[16] = _panel_red_now(deck, tam, gp_w, grid_v)
+    imgs[17] = _panel_inversor(deck, tam, info["status"], online, load_w)
+    imgs[18] = _panel_consumo(deck, tam, load_w, info["load_today"])
+    imgs[25] = _panel_bateria_icon(deck, tam, soc, bat_color)
+    # esquinas 8, 10, 24, 26 → vacías
 
-    imgs[8]  = dibujar_panel_metrica(deck, tam, "PV",
-                                      _fmt_power(pv_w), pv_color, pct=pv_pct)
-    imgs[9]  = dibujar_panel_metrica(deck, tam, "Consumo",
-                                      _fmt_power(load_w), cyan, pct=load_pct)
-    if bat_w >= 0:
-        # Cargando — verde si batería SOC ≥50, amarillo si menor
-        chg_color = green if (soc is not None and soc >= 50) else yellow
-        chg_pct   = min(100, int(bat_w * 100 / PMAX)) if bat_w > 0 else 0
-        imgs[10] = dibujar_panel_metrica(deck, tam, "Cargando",
-                                          _fmt_power(bat_w), chg_color, pct=chg_pct)
-    else:
-        # Descargando — naranja/rojo, magnitud absoluta
-        imgs[10] = dibujar_panel_metrica(deck, tam, "Descarga",
-                                          _fmt_power(bat_w), "#ff9933",
-                                          pct=min(100, int(abs(bat_w)*100/PMAX)))
+    # ── Cols 3-7: 5 cards estilo Growatt + estado + detalles ──────────────
+    #
+    # Fila 1 (11-15): las 5 métricas principales del dashboard Growatt
+    #   PV Output | BAT Descarga | BAT Carga | Grid Import | Load
+    bat_dis_w = max(0.0, -bat_w)   # W descargando (positivo)
+    bat_chg_w = max(0.0,  bat_w)   # W cargando (positivo)
+    grid_imp_w = max(0.0,  gp_w)   # W importando
+    imgs[11] = _panel_energia_card(deck, tam, "PV Output",
+                                    pv_w,  info["pv_today"],             yellow)
+    imgs[12] = _panel_energia_card(deck, tam, "Descarga",
+                                    bat_dis_w, info.get("bat_dis_today", 0), "#33aaff")
+    imgs[13] = _panel_energia_card(deck, tam, "Carga Bat",
+                                    bat_chg_w, info.get("bat_chg_today", 0), "#ff9933")
+    imgs[14] = _panel_energia_card(deck, tam, "Grid Import",
+                                    grid_imp_w, info["grid_today_import"],  red)
+    imgs[15] = _panel_energia_card(deck, tam, "Consumo",
+                                    load_w, info["load_today"],             cyan)
 
-    imgs[11] = dibujar_panel_info(deck, tam, "PV Hoy",  _fmt_energy(info["pv_today"]), yellow)
-    imgs[12] = dibujar_panel_info(deck, tam, "PV Total", _fmt_energy(info["pv_total"]), yellow)
-    imgs[13] = dibujar_panel_info(deck, tam, "Estado",   info["status"][:6],
+    # Fila 2 (19-23): estado + batería + red
+    imgs[19] = dibujar_panel_info(deck, tam, "Estado", info["status"][:8],
                                    green if info["status"].lower() == "online" else grey)
-    imgs[14] = dibujar_panel_info(deck, tam, "Update",   _fmt_age(info["last_update"]), cyan)
-    imgs[15] = dibujar_panel_info(deck, tam, "Refresh",  "Tap", cyan)
-
-    # --- Fila 2: BATERÍA + RED ---
+    imgs[20] = dibujar_panel_info(deck, tam, "Update", _fmt_age(info["last_update"]), cyan)
     if soc is not None:
-        imgs[16] = dibujar_panel_metrica(deck, tam, "BAT SOC", f"{soc:.0f}%",
+        imgs[21] = dibujar_panel_metrica(deck, tam, "BAT SOC", f"{soc:.0f}%",
                                           bat_color, pct=int(soc))
-        bp = info["bat_power"]
-        if bp > 5:
-            bat_flow_txt, bat_flow_col = f"+{_fmt_power(bp)}", green   # cargando
-        elif bp < -5:
-            bat_flow_txt, bat_flow_col = f"-{_fmt_power(bp)}", yellow  # descargando
-        else:
-            bat_flow_txt, bat_flow_col = "Idle", grey
-        imgs[17] = dibujar_panel_info(deck, tam, "Bat Flow", bat_flow_txt, bat_flow_col)
-        imgs[18] = dibujar_panel_info(deck, tam, "Bat V",
-                                       f"{info['bat_v']:.1f}V" if info['bat_v'] else "---",
-                                       bat_color)
     else:
-        imgs[16] = dibujar_panel_info(deck, tam, "BAT",  "N/D", grey)
-        imgs[17] = dibujar_panel_info(deck, tam, "Flow", "---", grey)
-        imgs[18] = dibujar_panel_info(deck, tam, "Bat",  "---", grey)
-
-    if gp < -5:
-        grid_lbl = f"-{_fmt_power(gp)}"   # exportando
-    elif gp > 5:
-        grid_lbl = f"+{_fmt_power(gp)}"   # importando
-    else:
-        grid_lbl = "0 W"
-    # Para storage off-grid: V/Hz de red son más informativos que grid_power.
-    grid_v  = info.get("grid_v", 0)
-    grid_hz = info.get("grid_hz", 0)
+        imgs[21] = dibujar_panel_info(deck, tam, "BAT SOC", "N/D", grey)
     if grid_v > 50:
-        imgs[19] = dibujar_panel_metrica(deck, tam, "RED V", f"{grid_v:.0f}V",
+        imgs[22] = dibujar_panel_metrica(deck, tam, "RED V", f"{grid_v:.0f}V",
                                           green if 190 < grid_v < 250 else red)
     else:
-        imgs[19] = dibujar_panel_info(deck, tam, "RED",  "OFF", grey)
-    imgs[20] = dibujar_panel_info(deck, tam, "RED Hz",  f"{grid_hz:.1f}",
+        imgs[22] = dibujar_panel_info(deck, tam, "RED V", "OFF", grey)
+    imgs[23] = dibujar_panel_info(deck, tam, "RED Hz", f"{grid_hz:.1f}",
                                    green if 49 < grid_hz < 61 else grey)
-    imgs[21] = dibujar_panel_info(deck, tam, "Imp Hoy", _fmt_energy(info["grid_today_import"]), red)
-    imgs[22] = dibujar_panel_info(deck, tam, "Exp Hoy", _fmt_energy(info["grid_today_export"]), green)
-    # Slot 23: flujo de red en W (import/export en tiempo real)
-    gp_w = info["grid_power"]
-    if gp_w > 50:
-        imgs[23] = dibujar_panel_info(deck, tam, "RED W", f"+{_fmt_power(gp_w)}", red)
-    elif gp_w < -50:
-        imgs[23] = dibujar_panel_info(deck, tam, "RED W", f"-{_fmt_power(gp_w)}", green)
+
+    # Fila 3 (27-31): acumulados + self-use + refresh
+    imgs[27] = _panel_red_hoy(deck, tam,
+                               info["grid_today_import"],
+                               info["grid_today_export"])
+    if load_w > 0:
+        from_grid = max(0, gp_w)
+        self_use  = max(0, min(100, 100 * (1 - from_grid / max(load_w, 1))))
+        imgs[28]  = dibujar_panel_metrica(deck, tam, "Self %", f"{self_use:.0f}%",
+                                           green if self_use > 70 else yellow,
+                                           pct=int(self_use))
     else:
-        imgs[23] = dibujar_panel_info(deck, tam, "RED W", "0", grey)
-
-    # --- Fila 3: ENERGÍAS HOY + RESUMEN ---
-    # Slot 24: descarga acumulada hoy (contraparte a "Carga Hoy" en kWh)
-    imgs[24] = dibujar_panel_info(deck, tam, "Desc Hoy",
-                                   _fmt_energy(info.get("bat_dis_today", 0)), yellow)
-    imgs[25] = dibujar_panel_info(deck, tam, "Carga Hoy", _fmt_energy(info["load_today"]), cyan)
-
-    # Auto-consumo: % del consumo que viene del PV+batería (no de red)
-    if info["load_power"] > 0:
-        from_grid = max(0, info["grid_power"])
-        self_use = max(0, min(100, 100 * (1 - from_grid / max(info["load_power"], 1))))
-        imgs[26] = dibujar_panel_metrica(deck, tam, "Self %", f"{self_use:.0f}%",
-                                          green if self_use > 70 else yellow,
-                                          pct=int(self_use))
-    else:
-        imgs[26] = dibujar_panel_info(deck, tam, "Self %", "---", grey)
-
-    imgs[27] = dibujar_panel_info(deck, tam, "$ Total",
+        imgs[28] = dibujar_panel_info(deck, tam, "Self %", "---", grey)
+    imgs[29] = dibujar_panel_info(deck, tam, "Planta",
+                                   str(info["plant_name"])[:8], yellow)
+    imgs[30] = dibujar_panel_info(deck, tam, "$ Total",
                                    f"{info['income_total']:.0f}", green)
-    imgs[28] = dibujar_panel_2lineas(deck, tam, "Planta",
-                                      str(info["plant_name"])[:16], yellow)
-    imgs[29] = dibujar_panel_info(deck, tam, "Logged",
-                                   "OK" if info["logged"] else "OFF",
-                                   green if info["logged"] else red)
-    imgs[30] = dibujar_panel_info(deck, tam, "Lib",
-                                   "OK" if GROWATT_DISPONIBLE else "MISS",
-                                   green if GROWATT_DISPONIBLE else red)
-    imgs[31] = dibujar_panel_info(deck, tam, "Refresh", "↻ Tap", cyan)
+    imgs[31] = dibujar_panel_info(deck, tam, "↻ Refresh", "Tap", cyan)
 
     return imgs
 
