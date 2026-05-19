@@ -1083,7 +1083,7 @@ def iniciar_dashboard():
                 except Exception: pass
                 _despertar = False
                 # Notifica a plugins con polling que el deck volvió activo
-                try: plugin_growatt._refresh_event.set()
+                try: plugin_growatt.set_deck_dimmed(False)
                 except Exception: pass
 
             # Fallback por inactividad: a banner si activado, si no a SIS.
@@ -1098,6 +1098,10 @@ def iniciar_dashboard():
                 try: deck.set_brightness(0)
                 except: pass
                 modo_dim_activo = True
+                print("[DIM] entrando en modo dim (sin actividad)", flush=True)
+                # Avisa al plugin growatt para pausar polling inmediatamente.
+                try: plugin_growatt.set_deck_dimmed(True)
+                except Exception: pass
 
             # Si está dim (manual via X o auto), no renderizar
             if modo_dim_activo:

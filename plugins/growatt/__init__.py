@@ -396,14 +396,21 @@ DIM_CHECK   = 15      # s — intervalo de chequeo cuando el deck está dimmed
 _last_refresh = 0.0
 
 
+_deck_is_dimmed = False
+
+
+def set_deck_dimmed(estado: bool):
+    """API pública: dashboard_pro avisa al plugin cuando el deck entra/sale
+    de dim. No podemos importar dashboard_pro (corre como __main__) así que
+    el estado se inyecta vía esta función."""
+    global _deck_is_dimmed
+    _deck_is_dimmed = bool(estado)
+    # Despertar al thread para que reaccione al cambio sin esperar al wait.
+    _refresh_event.set()
+
+
 def _deck_dimmed():
-    """¿El Stream Deck está en modo dim? Lee la global de dashboard_pro.
-    Import perezoso para evitar ciclo: dashboard_pro importa este módulo."""
-    try:
-        import dashboard_pro
-        return bool(getattr(dashboard_pro, "modo_dim_activo", False))
-    except Exception:
-        return False
+    return _deck_is_dimmed
 
 
 def tareas_fondo():
