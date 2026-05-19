@@ -1,7 +1,9 @@
 """Plugin GROWATT (página 17): dashboard inversor solar Growatt.
 
 Lee server.growatt.com vía la lib `growattServer` (PyPI, no oficial pero
-estable). Polling cada 30s en thread daemon. Credenciales en
+estable). Polling cada 3min en thread daemon, backoff exponencial al fallar
+(la nube empuja del dongle cada ~5min, polleando más rápido sólo gasta cuota
+y dispara Cloudflare). Credenciales en
 ~/.config/streamdeb/growatt.toml (preferido) o plugins/growatt/credentials.toml
 (fallback — gitignored).
 
@@ -205,7 +207,17 @@ def _poll_once(creds):
     # Re-pedido cada poll porque trae values en vivo de currentPower.
     try:
         pl = _api.plant_list(_user_id)
-        plants = pl.get("data", []) if isinstance(pl, dict) else []
+        if not isinstance(pl, dict) or "data" not in pl:
+            # Respuesta vacía/HTML → sesión caducada o rate-limit.
+            # Forzar re-login en siguiente poll y abortar éste.
+            _api = None
+            _user_id = None
+            with _lock:
+                gw_info["logged"] = False
+                gw_info["error"]  = "session expired"
+            print("[GROWATT] plant_list devolvió no-JSON; forzando re-login", flush=True)
+            return False
+        plants = pl.get("data", [])
         plant_row = next((p for p in plants if str(p.get("plantId")) == str(plant_id)),
                          plants[0] if plants else {})
         total_data = pl.get("totalData", {}) if isinstance(pl, dict) else {}
@@ -213,6 +225,13 @@ def _poll_once(creds):
         plant_row = {}
         total_data = {}
         print(f"[GROWATT] plant_list error: {e}", flush=True)
+        # Tratar excepciones de parsing JSON como sesión muerta también.
+        if "Expecting value" in str(e) or "JSON" in str(e):
+            _api = None
+            _user_id = None
+            with _lock:
+                gw_info["logged"] = False
+            return False
 
     # totalEnergy de plant_list viene en MWh→ string; convertimos manualmente
     def _kwh_from(value):
@@ -369,8 +388,28 @@ def _poll_once(creds):
     return True
 
 
+POLL_BASE   = 300     # s — 5min. La nube empuja cada ~5min, no gana nada bajarlo
+POLL_MAX    = 1800    # s — tope del backoff exponencial (30min)
+REFRESH_MIN = 60      # s — debounce mínimo entre refresh manuales
+DIM_CHECK   = 15      # s — intervalo de chequeo cuando el deck está dimmed
+
+_last_refresh = 0.0
+
+
+def _deck_dimmed():
+    """¿El Stream Deck está en modo dim? Lee la global de dashboard_pro.
+    Import perezoso para evitar ciclo: dashboard_pro importa este módulo."""
+    try:
+        import dashboard_pro
+        return bool(getattr(dashboard_pro, "modo_dim_activo", False))
+    except Exception:
+        return False
+
+
 def tareas_fondo():
-    """Thread daemon: poll Growatt cada 30s. Auto-relogin tras fallo prolongado."""
+    """Thread daemon: poll Growatt cada 5min. Pausa cuando el deck está dimmed
+    y dispara un poll inmediato en cuanto vuelve activo (backoff hasta 30min)."""
+    global _api, _user_id
     if not GROWATT_DISPONIBLE:
         print("[GROWATT] lib growattServer no instalada — plugin inactivo", flush=True)
         with _lock:
@@ -385,7 +424,28 @@ def tareas_fondo():
     print(f"[GROWATT] credenciales OK ({creds['source']})", flush=True)
 
     fallos = 0
+    was_dimmed = False
     while True:
+        # Si el deck está dimmed, no consume cuota: chequea cada DIM_CHECK
+        # segundos y pollea inmediatamente en cuanto vuelve activo.
+        if _deck_dimmed():
+            if not was_dimmed:
+                print("[GROWATT] deck dimmed — pausando polling", flush=True)
+                was_dimmed = True
+            _refresh_event.wait(timeout=DIM_CHECK)
+            _refresh_event.clear()
+            continue
+        if was_dimmed:
+            print("[GROWATT] deck activo — reanudando polling (invalidando sesión)", flush=True)
+            was_dimmed = False
+            # Tras un dim prolongado la cookie suele estar muerta. Forzar
+            # re-login en el siguiente _poll_once en lugar de gastar un
+            # intento con sesión caducada.
+            _api = None
+            _user_id = None
+            with _lock:
+                gw_info["logged"] = False
+
         try:
             ok = _poll_once(creds)
             if ok:
@@ -400,14 +460,14 @@ def tareas_fondo():
             print(f"[GROWATT] poll error #{fallos}: {e}", flush=True)
             # Tras 3 fallos seguidos, fuerza re-login.
             if fallos >= 3:
-                global _api, _user_id
                 _api = None
                 _user_id = None
                 with _lock:
                     gw_info["logged"] = False
 
-        # Espera 30s o hasta refresh manual
-        _refresh_event.wait(timeout=30)
+        # Espera con backoff exponencial si hay fallos seguidos
+        wait_s = min(POLL_BASE * (2 ** max(0, fallos - 1)), POLL_MAX) if fallos else POLL_BASE
+        _refresh_event.wait(timeout=wait_s)
         _refresh_event.clear()
 
 
@@ -743,7 +803,7 @@ def render_pagina_growatt(deck, tam, nav_imgs):
 
     if not online and err:
         imgs[8]  = dibujar_panel_2lineas(deck, tam, "ERROR", err[:24], red)
-        imgs[16] = dibujar_panel_info(deck, tam, "Reintento", "30s",  grey)
+        imgs[16] = dibujar_panel_info(deck, tam, "Reintento", "3min", grey)
         imgs[24] = dibujar_panel_info(deck, tam, "Planta", info["plant_name"][:8], grey)
         imgs[15] = dibujar_panel_info(deck, tam, "↻ Refresh", "Tap", cyan)
         imgs[31] = dibujar_panel_info(deck, tam, "↻ Refresh", "Tap", cyan)
@@ -1002,8 +1062,15 @@ def widget_para_sistema(deck, tam):
 
 
 def on_press(tecla):
-    """Handler. Tecla 15 o 31 → refresh manual."""
+    """Handler. Tecla 15 o 31 → refresh manual (debounced 60s)."""
+    global _last_refresh
     if tecla in (15, 31):
+        now = time.time()
+        if now - _last_refresh < REFRESH_MIN:
+            restante = int(REFRESH_MIN - (now - _last_refresh))
+            print(f"[GROWATT] refresh ignorado (espera {restante}s)", flush=True)
+            return True
+        _last_refresh = now
         _refresh_event.set()
         print("[GROWATT] refresh manual", flush=True)
         return True

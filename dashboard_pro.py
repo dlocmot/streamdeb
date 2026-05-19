@@ -1082,6 +1082,9 @@ def iniciar_dashboard():
                     modo_dim_activo = False
                 except Exception: pass
                 _despertar = False
+                # Notifica a plugins con polling que el deck volvió activo
+                try: plugin_growatt._refresh_event.set()
+                except Exception: pass
 
             # Fallback por inactividad: a banner si activado, si no a SIS.
             # Excluyo WEB(6) y KEYS(7) — uso prolongado — y banner (9) consigo mismo.
