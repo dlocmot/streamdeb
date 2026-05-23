@@ -1052,6 +1052,7 @@ def iniciar_dashboard():
     threading.Thread(target=tareas_red_fondo, daemon=True).start()
     threading.Thread(target=plugin_awa.tareas_api_fondo, daemon=True).start()
     threading.Thread(target=plugin_docker.tareas_fondo, daemon=True).start()
+    threading.Thread(target=plugin_docker.tareas_stats,  daemon=True).start()
     threading.Thread(target=plugin_clima.tareas_fondo,  daemon=True).start()
     threading.Thread(target=plugin_pomo.tareas_fondo,   daemon=True).start()
     threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
