@@ -1,2 +1,3 @@
 streamdeck>=0.9.5
 Pillow>=10.0.0
+psutil>=5.9.0
