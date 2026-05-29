@@ -260,23 +260,60 @@ def render_pagina_docker(deck, tam, nav_imgs):
             imgs[tecla_bot] = dibujar_panel_info(deck, tam, "—", "stopped", "#444444")
 
     # Row 3: daemon actions
-    img_col = "#33ccff" if imgs_n else "#666666"
-    disk_col = "#ff9933" if disk_gb > 20 else "#33ccff"
-    imgs[24] = dibujar_panel_info(deck, tam, "Imgs",  str(imgs_n), img_col)
-    imgs[25] = dibujar_panel_info(deck, tam, "Disco", f"{disk_gb:.1f}G", disk_col)
-    imgs[26] = dibujar_panel_info(deck, tam, "Prune", msg if msg.startswith("prune") else "tap", "#ffaa33")
-    imgs[27] = dibujar_panel_info(deck, tam, "Pull",  msg if msg.startswith("pull")  else "all", "#cc66ff")
-    imgs[28] = dibujar_panel_info(deck, tam, "Stop",  "all", "#ff5544")
-    imgs[29] = dibujar_panel_info(deck, tam, "Start", "all", "#33dd66")
-    # Paginación: muestra sólo si hay >1 página
+    # Row 3 dinámica: refleja estado real del daemon.
+    running_n = sum(1 for c in containers if c[1])
+    stopped_n = total - running_n
+    unique_imgs = len({c[2] for c in containers if c[2]})
+
+    img_col  = "#33ccff" if imgs_n else "#666666"
+    disk_col = "#ff5544" if disk_gb > 50 else ("#ff9933" if disk_gb > 20 else "#33ccff")
+
+    imgs[24] = dibujar_panel_info(deck, tam, "Imgs",
+                                   str(imgs_n) if imgs_n else "—", img_col)
+    imgs[25] = dibujar_panel_info(deck, tam, "Disco",
+                                   f"{disk_gb:.1f}G" if disk_gb > 0 else "—",
+                                   disk_col)
+
+    # Prune: muestra resultado si está corriendo, si no "tap" en activo
+    prune_sub = msg.split(":", 1)[1] if msg.startswith("prune") else "tap"
+    imgs[26] = dibujar_panel_info(deck, tam, "Prune", prune_sub, "#ffaa33")
+
+    # Pull: nº de imágenes únicas en uso (si hay 0 containers, greyed)
+    if msg.startswith("pull"):
+        pull_sub, pull_col = msg.split(":", 1)[1], "#cc66ff"
+    elif unique_imgs > 0:
+        pull_sub, pull_col = f"{unique_imgs} img", "#cc66ff"
+    else:
+        pull_sub, pull_col = "—", "#444444"
+    imgs[27] = dibujar_panel_info(deck, tam, "Pull", pull_sub, pull_col)
+
+    # Stop all: activo sólo si hay running
+    if msg.startswith("stop"):
+        stop_sub, stop_col = msg.split(":", 1)[1], "#ff5544"
+    elif running_n > 0:
+        stop_sub, stop_col = f"{running_n} on", "#ff5544"
+    else:
+        stop_sub, stop_col = "—", "#444444"
+    imgs[28] = dibujar_panel_info(deck, tam, "Stop", stop_sub, stop_col)
+
+    # Start all: activo sólo si hay stopped
+    if msg.startswith("star"):
+        start_sub, start_col = msg.split(":", 1)[1], "#33dd66"
+    elif stopped_n > 0:
+        start_sub, start_col = f"{stopped_n} off", "#33dd66"
+    else:
+        start_sub, start_col = "—", "#444444"
+    imgs[29] = dibujar_panel_info(deck, tam, "Start", start_sub, start_col)
+
+    # Paginación: activa sólo si hay >1 página
     if n_pag > 1:
         imgs[30] = dibujar_panel_info(deck, tam, "← Pg",
                                        f"{page+1}/{n_pag}", "#aaaaaa")
         imgs[31] = dibujar_panel_info(deck, tam, "Pg →",
                                        f"{page+1}/{n_pag}", "#aaaaaa")
     else:
-        imgs[30] = dibujar_panel_info(deck, tam, "Pg", "1/1", "#444444")
-        imgs[31] = dibujar_panel_info(deck, tam, "Pg", "1/1", "#444444")
+        imgs[30] = dibujar_panel_info(deck, tam, "← Pg", "—", "#444444")
+        imgs[31] = dibujar_panel_info(deck, tam, "Pg →", "—", "#444444")
     return imgs
 
 
@@ -324,11 +361,16 @@ def on_press_dentro_pagina(tecla):
         if imgs:
             _set_msg(f"pull:{len(imgs)}", secs=300)
             def _pull():
+                fallos = 0
                 for i in imgs:
-                    subprocess.run(["docker", "pull", i],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, timeout=300)
-                _set_msg("pull:OK")
+                    try:
+                        subprocess.run(["docker", "pull", i],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=300)
+                    except (subprocess.TimeoutExpired, OSError) as e:
+                        fallos += 1
+                        print(f"[DOCKER] pull {i}: {type(e).__name__}", flush=True)
+                _set_msg("pull:OK" if not fallos else f"pull:{fallos}err")
             threading.Thread(target=_pull, daemon=True).start()
         return True
     if tecla == 28:   # Stop all running
