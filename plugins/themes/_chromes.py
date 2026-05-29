@@ -10,7 +10,7 @@ import random
 import time
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from core.helpers import _fit_font
+from core.helpers import _fit_font, cargar_fuente
 
 
 # --- Paths a fuentes descargadas ----------------------------------------
@@ -24,7 +24,7 @@ def _font(name, size):
     path = os.path.join(_FONTS_DIR, name)
     if not os.path.exists(path):
         path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    return ImageFont.truetype(path, size)
+    return cargar_fuente(size, path)
 
 ANTONIO     = "Antonio-Bold.ttf"
 RAJDHANI    = "Rajdhani-Bold.ttf"

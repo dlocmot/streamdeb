@@ -11,6 +11,7 @@ import random
 import time
 from PIL import Image, ImageDraw, ImageFont
 
+from core.helpers import cargar_fuente
 from plugins.themes import register
 from plugins.themes._chromes import matrix_chrome
 
@@ -46,7 +47,7 @@ def background(tamaño, tecla, t):
     n_cols = 7
     col_w = W // n_cols
     try:
-        font = ImageFont.truetype(_FONT_PATH, max(10, col_w - 2))
+        font = cargar_fuente(max(10, col_w - 2), _FONT_PATH)
     except Exception:
         _cache[key] = img
         return img

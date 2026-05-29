@@ -6,7 +6,7 @@ import urllib.request
 from PIL import Image, ImageDraw, ImageFont
 
 from core.config import API_HOST, API_USER, FONT_PATH
-from core.helpers import _fit_font, _fmt_tiempo
+from core.helpers import _fit_font, _fmt_tiempo, cargar_fuente
 from core.widgets import (
     _nuevo_lienzo, con_marco,
     dibujar_panel_metrica, dibujar_panel_info, dibujar_panel_2lineas,
@@ -80,7 +80,7 @@ def dibujar_estado_pro(deck, tamaño, online, abierta):
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
-    f_tit = ImageFont.truetype(FONT_PATH, 13)
+    f_tit = cargar_fuente(13)
 
     if not online:    color = "#666666"
     elif abierta:     color = "#22dd44"
@@ -152,14 +152,17 @@ def dibujar_accion_pro(deck, tamaño, texto, color, peligro=False, drain=None):
 
 def render_pagina_api(deck, tam, nav_imgs, net_info, ping_pct_relativo_fn):
     cyan = "#00ddff"
-    online = api_info["online"]
-    estado = api_info["estado"]
+    # Snapshot atómico: el thread de polling hace api_info.update() (atómico
+    # bajo GIL); copiar de una vez evita drain/segundos de updates distintos.
+    info = dict(api_info)
+    online = info["online"]
+    estado = info["estado"]
     abierta = (estado == "Abierta")
     cuenta_color = "#666666" if not online else "#33ff33" if abierta else "#ff3333"
-    admin_color  = "#ff3333" if api_info["adminLocked"] else "#33ff33"
-    admin_txt    = "BLOQ" if api_info["adminLocked"] else "OK"
-    tank_color   = "#33ff33" if api_info["tankOnline"] else "#ff3333"
-    tank_txt     = f"{api_info['tankSignal']}/4" if api_info["tankOnline"] else "OFF"
+    admin_color  = "#ff3333" if info["adminLocked"] else "#33ff33"
+    admin_txt    = "BLOQ" if info["adminLocked"] else "OK"
+    tank_color   = "#33ff33" if info["tankOnline"] else "#ff3333"
+    tank_txt     = f"{info['tankSignal']}/4" if info["tankOnline"] else "OFF"
 
     ms_api = net_info["ping_api"]
     if ms_api > 0:
@@ -171,15 +174,15 @@ def render_pagina_api(deck, tam, nav_imgs, net_info, ping_pct_relativo_fn):
 
     active_key, active_drain = None, None
     if online and abierta:
-        init_s = api_info.get("initial_seconds", 0)
-        sec    = api_info.get("segundos", 0)
+        init_s = info.get("initial_seconds", 0)
+        sec    = info.get("segundos", 0)
         if init_s > 0 and init_s in DURACION_A_TECLA:
             active_key   = DURACION_A_TECLA[init_s]
             active_drain = max(0.0, min(1.0, (init_s - sec) / init_s))
 
     def accion(tecla, label):
         if tecla == active_key:
-            txt = _fmt_tiempo(api_info.get("segundos", 0))
+            txt = _fmt_tiempo(info.get("segundos", 0))
             return dibujar_accion_pro(deck, tam, txt, cyan, drain=active_drain)
         return dibujar_accion_pro(deck, tam, label, cyan)
 
@@ -187,12 +190,12 @@ def render_pagina_api(deck, tam, nav_imgs, net_info, ping_pct_relativo_fn):
     imgs.update({
         # Fila 1: estado API
         8:  dibujar_estado_pro(deck, tam, online, abierta),
-        9:  dibujar_panel_2lineas(deck, tam, "Cuenta",  str(api_info["cuenta"]), cuenta_color),
-        10: dibujar_panel_2lineas(deck, tam, "Modo",    str(api_info["modoNombre"]), cyan),
-        11: dibujar_panel_info(deck, tam,    "Aper.",   str(api_info["contador"]), cyan),
-        12: dibujar_panel_info(deck, tam,    "WiFi",    f"{api_info['wifiSignal']}/4", cyan),
+        9:  dibujar_panel_2lineas(deck, tam, "Cuenta",  str(info["cuenta"]), cuenta_color),
+        10: dibujar_panel_2lineas(deck, tam, "Modo",    str(info["modoNombre"]), cyan),
+        11: dibujar_panel_info(deck, tam,    "Aper.",   str(info["contador"]), cyan),
+        12: dibujar_panel_info(deck, tam,    "WiFi",    f"{info['wifiSignal']}/4", cyan),
         13: dibujar_panel_info(deck, tam,    "Tank",    tank_txt, tank_color),
-        14: dibujar_panel_2lineas(deck, tam, "Usuario", api_info["usuario"], cyan),
+        14: dibujar_panel_2lineas(deck, tam, "Usuario", info["usuario"], cyan),
         15: dibujar_panel_info(deck, tam,    "Admin",   admin_txt, admin_color),
         # Fila 2: acciones cortas + ping API en última columna
         16: accion(16, "1 MIN"),

@@ -13,6 +13,7 @@ from StreamDeck.ImageHelpers import PILHelper
 
 from . import wallpaper as wp
 from .config import FONT_PATH, PREVIEW_DIR
+from .helpers import cargar_fuente
 
 
 _finalizar_cache = {}        # (id(pil)|0, wallpaper_idx, tecla) → bytes JPEG
@@ -102,7 +103,7 @@ _LCARS_ICE       = "#99CCFF"
 
 _LCARS_FONT = "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf"
 try:
-    _ = ImageFont.truetype(_LCARS_FONT, 10)
+    _ = cargar_fuente(10, _LCARS_FONT)
 except Exception:
     _LCARS_FONT = FONT_PATH
 
@@ -157,14 +158,14 @@ def _lcars_chrome_for_tile(tamaño, tecla):
         d.rectangle((0, 0, W, TH), fill=c)
         # Bloque numérico + label genérico (sólo si se quiere). Se deja
         # vacío: el widget puede dibujar su título debajo si quiere.
-        f = ImageFont.truetype(_LCARS_FONT, 13)
+        f = cargar_fuente(13, _LCARS_FONT)
         block = f"{(col*7 + 3):02d}"
         d.text((W - 5, TH//2 + 1), block, font=f, fill="black", anchor="rm")
     elif is_left:
         # Sidebar segment full-height del tile.
         c = _LCARS_RIB_PALETTE[row % len(_LCARS_RIB_PALETTE)]
         d.rectangle((0, 0, SW, H), fill=c)
-        f = ImageFont.truetype(_LCARS_FONT, 12)
+        f = cargar_fuente(12, _LCARS_FONT)
         block = f"{(row*11 + 5):02d}"
         d.text((SW - 4, H - 4), block, font=f, fill="black", anchor="rb")
 

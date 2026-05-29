@@ -20,7 +20,8 @@ _ICONO_SUBDIRS = ("apps", "actions", "categories", "places", "status", "devices"
 
 _iconify_paths = {}
 _favicon_paths = {}
-_icono_cache   = {}
+_icono_cache   = {}            # (nombre, lado_max) → PIL.Image | None
+_ICONO_CACHE_MAX = 256         # cap defensivo: retiene PILs; si crece se vacía
 
 
 def iconify_png(name, color_hex, size=256):
@@ -144,6 +145,10 @@ def cargar_icono(nombre, lado_max):
     key = (nombre, lado_max)
     if key in _icono_cache:
         return _icono_cache[key]
+    # Cap defensivo: si entran nombres/tamaños dinámicos sin límite, evita
+    # retener PILs indefinidamente (el RSS cuenta contra el cgroup del servicio).
+    if len(_icono_cache) >= _ICONO_CACHE_MAX:
+        _icono_cache.clear()
     path = buscar_icono(nombre)
     if not path:
         _icono_cache[key] = None

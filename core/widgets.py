@@ -12,7 +12,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 from .config import FONT_PATH
-from .helpers import _fit_font
+from .helpers import _fit_font, cargar_fuente
 from .iconos import cargar_icono as _cargar_icono
 
 
@@ -87,9 +87,9 @@ _LCARS_FONT_PATH = _ANTONIO if os.path.exists(_ANTONIO) else (
 
 def _lcars_font(size):
     try:
-        return ImageFont.truetype(_LCARS_FONT_PATH, size)
+        return cargar_fuente(size, _LCARS_FONT_PATH)
     except Exception:
-        return ImageFont.truetype(FONT_PATH, size)
+        return cargar_fuente(size)
 
 # Fallback inline si el registry de plugins/themes no está cargado aún
 # (típico durante imports antes de autoload). Evita romper widgets en
@@ -356,7 +356,7 @@ def dibujar_panel_metrica(deck, tamaño, titulo, valor, color,
         rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 15), titulo, font=f_tit, fill=color, anchor="mm")
         dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
         body_top = 28
@@ -378,7 +378,7 @@ def dibujar_panel_metrica(deck, tamaño, titulo, valor, color,
         dibujo.text((cx, cy + 10), l2, font=f2, fill=vc, anchor="mm")
     elif sub:
         f_val = _fit_font(dibujo, txt, max_w, 22, 12, font_path=fp)
-        f_sub = ImageFont.truetype(fp, 12)
+        f_sub = cargar_fuente(12, fp)
         dibujo.text((cx, cy - 8),  txt, font=f_val, fill=vc, anchor="mm")
         dibujo.text((cx, cy + 10), sub.upper() if lcars else sub,
                     font=f_sub, fill="#aaaaaa", anchor="mm")
@@ -412,7 +412,7 @@ def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn):
         rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 15), titulo, font=f_tit, fill=frame_color, anchor="mm")
         dibujo.line((10, 27, tamaño[0]-11, 27), fill=frame_color, width=1)
         pad_left = 10
@@ -424,7 +424,7 @@ def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn):
     zone_bot = (_lcars_body_bottom(tamaño) - 8) if lcars else (tamaño[1] - 10)
     bar_zone_h = zone_bot - zone_top
     bar_w = (tamaño[0] - 2*pad_x - gap*(n-1)) // n
-    f_lbl = ImageFont.truetype(FONT_PATH, 9)
+    f_lbl = cargar_fuente(9)
     for i, v in enumerate(valores):
         x = pad_x + i*(bar_w + gap)
         c = color_fn(v)
@@ -456,7 +456,7 @@ def dibujar_panel_pings(deck, tamaño, titulo, items):
     else:
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=worst_color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 15), titulo, font=f_tit, fill=worst_color, anchor="mm")
         dibujo.line((10, 27, tamaño[0]-11, 27), fill=worst_color, width=1)
 
@@ -467,7 +467,7 @@ def dibujar_panel_pings(deck, tamaño, titulo, items):
     zone_bot = (_lcars_body_bottom(tamaño) - 12) if lcars else (tamaño[1] - 16)
     bar_zone_h = zone_bot - zone_top
     bar_w = (tamaño[0] - 2*pad_x - gap*(n-1)) // n
-    f_lbl = ImageFont.truetype(FONT_PATH, 9)
+    f_lbl = cargar_fuente(9)
     for i, (lbl, pct, color, _ms) in enumerate(items):
         x = pad_x + i*(bar_w + gap)
         dibujo.rectangle((x, zone_top, x+bar_w, zone_bot), outline="#333333", fill="#111111")
@@ -489,7 +489,7 @@ def dibujar_panel_info(deck, tamaño, titulo, valor, frame_color, valor_color="#
         rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=frame_color, anchor="mm")
         dibujo.line((10, 28, tamaño[0]-11, 28), fill=frame_color, width=1)
     txt = str(valor)
@@ -507,7 +507,7 @@ def dibujar_panel_2lineas(deck, tamaño, titulo, valor, frame_color, valor_color
         rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=frame_color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=frame_color, anchor="mm")
         dibujo.line((10, 28, tamaño[0]-11, 28), fill=frame_color, width=1)
     txt = str(valor).strip()
@@ -538,7 +538,7 @@ def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None,
             dibujo.rounded_rectangle(
                 (3, pad, tamaño[0]-4, pad+44), radius=22, fill=c_tng,
             )
-            f_tit = ImageFont.truetype(FONT_PATH, 18)
+            f_tit = cargar_fuente(18)
             dibujo.text((tamaño[0]//2, pad+22), str(titulo).upper(),
                         font=f_tit, fill="black", anchor="mm")
             _lcars_rib(dibujo, tamaño, color)
@@ -568,7 +568,7 @@ def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None,
         title_color, sub_color = "white", color
     max_w = tamaño[0] - 18
     if sub1 and sub2:
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=title_color, anchor="mm")
         dibujo.line((11, 28, tamaño[0]-12, 28), fill=sub_color, width=1)
         f1 = _fit_font(dibujo, str(sub1), max_w, 16, 10)
@@ -576,13 +576,13 @@ def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None,
         dibujo.text((tamaño[0]//2, 50), str(sub1), font=f1, fill=sub_color, anchor="mm")
         dibujo.text((tamaño[0]//2, 76), str(sub2), font=f2, fill=sub_color, anchor="mm")
     elif sub1:
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=title_color, anchor="mm")
         dibujo.line((11, 28, tamaño[0]-12, 28), fill=sub_color, width=1)
         f1 = _fit_font(dibujo, str(sub1), max_w, 26, 12)
         dibujo.text((tamaño[0]//2, 62), str(sub1), font=f1, fill=sub_color, anchor="mm")
     else:
-        f_tit = ImageFont.truetype(FONT_PATH, 18)
+        f_tit = cargar_fuente(18)
         dibujo.text((tamaño[0]//2, tamaño[1]//2), titulo, font=f_tit, fill=title_color, anchor="mm")
     return imagen
 
@@ -590,7 +590,7 @@ def dibujar_boton_nav(deck, tamaño, titulo, sub1=None, sub2=None,
 def dibujar_boton_fijo(deck, tamaño, texto, color, relleno=False):
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
-    f_btn = ImageFont.truetype(FONT_PATH, 18)
+    f_btn = cargar_fuente(18)
     if es_lcars():
         c = _lcars_remap(color)
         if relleno:
@@ -666,7 +666,7 @@ def dibujar_lanzador(deck, tamaño, categoria, color, icono=None, fallback=None)
         rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 15), categoria, font=f_tit, fill=color, anchor="mm")
         dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
         zone_top, zone_bot = 28, tamaño[1] - 6
@@ -695,7 +695,7 @@ def dibujar_lanzador_web(deck, tamaño, label, color, icon_path):
         rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
         if _con_marco_fn():
             dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 15), label, font=f_tit, fill=color, anchor="mm")
         dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
         zone_top, zone_bot = 28, tamaño[1] - 6
@@ -755,7 +755,7 @@ def dibujar_btn_icono_nav(deck, tamaño, paths, color, titulo, activo, cache):
             if _con_marco_fn():
                 dibujo.rounded_rectangle(rect, radius=12, outline=color, width=3)
             title_color, sep_color = "white", color
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         dibujo.text((tamaño[0]//2, 16), titulo, font=f_tit, fill=title_color, anchor="mm")
         dibujo.line((11, 28, tamaño[0]-12, 28), fill=sep_color, width=1)
         zone_top, zone_bot = 30, tamaño[1] - 6

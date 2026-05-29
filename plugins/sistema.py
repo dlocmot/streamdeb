@@ -29,6 +29,7 @@ def tareas_fondo():
         try: p.cpu_percent(None)
         except Exception: pass
     time.sleep(1)
+    total_ram = psutil.virtual_memory().total or 1
     while True:
         try:
             snap = []
@@ -36,41 +37,48 @@ def tareas_fondo():
                 try:
                     cpu = p.cpu_percent(None)
                     rss = p.memory_info().rss
-                    pct = p.memory_percent()
                     nm  = p.info["name"] or "?"
-                    snap.append((nm, cpu, rss, pct))
+                    snap.append((nm, cpu, rss))
                 except Exception:
                     continue
             # Normaliza CPU dividiendo entre núcleos para obtener % global.
+            # mem% se deriva de rss/total_ram (1 lectura) en vez de
+            # memory_percent() por proceso (que re-lee el total cada vez).
             n_cpu = psutil.cpu_count() or 1
             top_cpu = sorted(snap, key=lambda x: x[1], reverse=True)[:5]
             top_mem = sorted(snap, key=lambda x: x[2], reverse=True)[:5]
             with _procs_lock:
-                top_procs["cpu"] = [(n, c / n_cpu) for n, c, _, _ in top_cpu]
-                top_procs["mem"] = [(n, r, pct) for n, _, r, pct in top_mem]
+                top_procs["cpu"] = [(n, c / n_cpu) for n, c, _ in top_cpu]
+                top_procs["mem"] = [(n, r, r / total_ram * 100) for n, _, r in top_mem]
         except Exception as e:
             print(f"[SIS] top procs err: {e}", flush=True)
-        time.sleep(3)
+        time.sleep(6)
 
 
-def _temps_cores():
-    """Devuelve (lista °C por core, critical°C) o ([], None) si no hay sensor."""
+def _leer_sensores():
+    """Lectura única de sensores térmicos; {} si no hay/falla.
+    sensors_temperatures() lee sysfs en cada llamada — leer una vez por
+    render y pasar el dict a los helpers evita 2-3 lecturas redundantes."""
     try:
-        s = psutil.sensors_temperatures()
+        return psutil.sensors_temperatures()
     except Exception:
-        return [], None
+        return {}
+
+
+def _temps_cores(s=None):
+    """Devuelve (lista °C por core, critical°C) o ([], None) si no hay sensor."""
+    if s is None:
+        s = _leer_sensores()
     cores = s.get("coretemp") or []
     per_core = [e.current for e in cores if (e.label or "").startswith("Core")]
     crit = next((e.critical for e in cores if e.critical), None)
     return per_core, crit
 
 
-def _temp_pkg():
+def _temp_pkg(s=None):
     """Temperatura del package (Package id 0) o None."""
-    try:
-        s = psutil.sensors_temperatures()
-    except Exception:
-        return None, None
+    if s is None:
+        s = _leer_sensores()
     cores = s.get("coretemp") or []
     pkg = next((e for e in cores if (e.label or "").startswith("Package")), None)
     if pkg is None:
@@ -107,8 +115,9 @@ def temp_color(t):
 def render_pagina_temps(deck, tam, nav_imgs):
     """Página TEMPS (id 16): detalle de sensores térmicos."""
     imgs = dict(nav_imgs)
-    per_core, crit = _temps_cores()
-    pkg, _ = _temp_pkg()
+    s = _leer_sensores()
+    per_core, crit = _temps_cores(s)
+    pkg, _ = _temp_pkg(s)
 
     # Fila 1: Package + 4 cores. Barra escala vs critical, color absoluto °C.
     if pkg is not None:
@@ -123,11 +132,7 @@ def render_pagina_temps(deck, tam, nav_imgs):
         imgs[15] = dibujar_panel_metrica(deck, tam, "Crit", f"{crit:.0f}°", "#ff6666",
                                            sub="thr")
 
-    # Fila 2: otros sensores (acpitz / wifi / nvme...)
-    try:
-        s = psutil.sensors_temperatures()
-    except Exception:
-        s = {}
+    # Fila 2: otros sensores (acpitz / wifi / nvme...) — reusa la lectura única
     extras = []
     for grupo, items in s.items():
         if grupo == "coretemp":
@@ -289,7 +294,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     """Render SIS. `widgets_extras`: dict {tecla: PIL} de plugins externos
     (pomodoro, clima, docker) — se mergea al final."""
     global max_visto_down, max_visto_up
-    up_t  = (psutil.boot_time() and __import__('time').time() - psutil.boot_time()) or 0
+    up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
     cpu_t = psutil.cpu_percent()
     cores = psutil.cpu_percent(percpu=True)

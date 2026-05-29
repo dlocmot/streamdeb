@@ -13,6 +13,7 @@ Layout (página 17, 8×4):
   Fila 2  (16-23): BATERÍA + RED
   Fila 3  (24-31): CARGA + TOTALES
 """
+import functools
 import math
 import os
 import time
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from PIL import ImageDraw, ImageFont
 from core.config import FONT_PATH
+from core.helpers import cargar_fuente
 from core.widgets import (
     dibujar_panel_metrica, dibujar_panel_info, dibujar_panel_2lineas,
     dibujar_panel_pings,
@@ -130,6 +132,18 @@ def _ensure_login(creds):
             agent_identifier="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
         )
         _api.server_url = "https://server.growatt.com/"
+        # growattServer usa requests.Session sin timeout → un socket a medias
+        # cuelga el thread de polling para siempre (el backoff nunca se activa).
+        # Inyectamos un timeout por defecto a todas las requests de la sesión.
+        sess = getattr(_api, "session", None)
+        if sess is not None and not getattr(sess, "_streamdeb_timeout", False):
+            _orig_request = sess.request
+            @functools.wraps(_orig_request)
+            def _request_con_timeout(*a, **kw):
+                kw.setdefault("timeout", 20)
+                return _orig_request(*a, **kw)
+            sess.request = _request_con_timeout
+            sess._streamdeb_timeout = True
         resp = _api.login(creds["user"], creds["password"])
         if not resp or not resp.get("success"):
             msg = (resp or {}).get("error") or (resp or {}).get("msg") or "login failed"
@@ -611,7 +625,7 @@ def _chrome_std(d, tam, titulo, color):
     else:
         if con_marco():
             d.rounded_rectangle((4, 4, W-5, H-5), radius=10, outline=color, width=2)
-        f = ImageFont.truetype(FONT_PATH, 11)
+        f = cargar_fuente(11)
         d.text((W//2, 14), titulo, font=f, fill=color, anchor="mm")
         d.line((8, 24, W-9, 24), fill=color, width=1)
     return color
@@ -633,12 +647,12 @@ def _panel_solar(deck, tam, pv_w, pv_today, fuente="SOL", fuente_col="#ffcc00"):
     # Píldora de fuente actual — fondo sólido de color, texto negro
     px, py, pr, ph = W//2 - 24, 52, 7, 18
     d.rounded_rectangle((px, py, px+48, py+ph), radius=pr, fill=fuente_col)
-    f_fuente = ImageFont.truetype(FONT_PATH, 12)
+    f_fuente = cargar_fuente(12)
     d.text((W//2, py + ph//2), fuente, font=f_fuente, fill="black", anchor="mm")
 
     # Potencia PV y acumulado hoy
-    f_v = ImageFont.truetype(FONT_PATH, 11)
-    f_s = ImageFont.truetype(FONT_PATH, 9)
+    f_v = cargar_fuente(11)
+    f_s = cargar_fuente(9)
     d.text((W//2, 78), _fmt_power(pv_w),      font=f_v, fill="white",   anchor="mm")
     d.text((W//2, 89), _fmt_energy(pv_today),  font=f_s, fill="#aaaaaa", anchor="mm")
     return img
@@ -652,8 +666,8 @@ def _panel_inversor(deck, tam, status, online, load_w):
     W, H = tam
     col = _chrome_std(d, tam, "Inversor", col)
     _inv_icon(d, W//2, 44, 22, col)
-    f_v = ImageFont.truetype(FONT_PATH, 11)
-    f_s = ImageFont.truetype(FONT_PATH, 9)
+    f_v = cargar_fuente(11)
+    f_s = cargar_fuente(9)
     st_col = "#33ff33" if online else "#ff3333"
     d.text((W//2, 67), status[:10],      font=f_v, fill=st_col,   anchor="mm")
     d.text((W//2, 80), _fmt_power(load_w), font=f_s, fill="#aaaaaa", anchor="mm")
@@ -671,8 +685,8 @@ def _panel_red_now(deck, tam, grid_w, grid_v):
     W, H = tam
     col = _chrome_std(d, tam, "Red", col)
     _rayo_icon(d, W//2, 28, 55, col)
-    f_v = ImageFont.truetype(FONT_PATH, 14)
-    f_s = ImageFont.truetype(FONT_PATH, 9)
+    f_v = cargar_fuente(14)
+    f_s = cargar_fuente(9)
     d.text((W//2, 63), _fmt_power(grid_w), font=f_v, fill="white",   anchor="mm")
     if   grid_w < -5:  txt, tc = "↑ Exportando", "#33ff33"
     elif grid_w >  5:  txt, tc = "↓ Importando", "#ff4444"
@@ -688,8 +702,8 @@ def _panel_pv_acum(deck, tam, pv_today, pv_total):
     d   = ImageDraw.Draw(img)
     W, H = tam
     col = _chrome_std(d, tam, "PV Acum", col)
-    f_l = ImageFont.truetype(FONT_PATH, 9)
-    f_v = ImageFont.truetype(FONT_PATH, 13)
+    f_l = cargar_fuente(9)
+    f_v = cargar_fuente(13)
     d.text((W//2, 37), "Hoy",               font=f_l, fill="#aaaaaa", anchor="mm")
     d.text((W//2, 51), _fmt_energy(pv_today), font=f_v, fill=col,       anchor="mm")
     d.line((12, 61, W-13, 61), fill="#333333", width=1)
@@ -706,8 +720,8 @@ def _panel_consumo(deck, tam, load_w, load_today):
     W, H = tam
     col = _chrome_std(d, tam, "Consumo", col)
     _casa_icon(d, W//2, 25, 24, col)   # casa más grande
-    f_v = ImageFont.truetype(FONT_PATH, 13)
-    f_s = ImageFont.truetype(FONT_PATH, 9)
+    f_v = cargar_fuente(13)
+    f_s = cargar_fuente(9)
     d.text((W//2, 68), _fmt_power(load_w),           font=f_v, fill="white",   anchor="mm")
     d.text((W//2, 79), f"Hoy {_fmt_energy(load_today)}", font=f_s, fill="#aaaaaa", anchor="mm")
     return img
@@ -719,8 +733,8 @@ def _panel_red_hoy(deck, tam, import_kwh, export_kwh):
     d   = ImageDraw.Draw(img)
     W, H = tam
     _chrome_std(d, tam, "Red Hoy", "#ff4444")
-    f_l = ImageFont.truetype(FONT_PATH, 9)
-    f_v = ImageFont.truetype(FONT_PATH, 13)
+    f_l = cargar_fuente(9)
+    f_v = cargar_fuente(13)
     d.text((W//2, 37), "↓ Import",               font=f_l, fill="#ff4444", anchor="mm")
     d.text((W//2, 51), _fmt_energy(import_kwh),   font=f_v, fill="#ff4444", anchor="mm")
     d.line((12, 61, W-13, 61), fill="#333333", width=1)
@@ -737,7 +751,7 @@ def _panel_bateria_icon(deck, tam, soc, bat_color):
     bat_color = _chrome_std(d, tam, "Batería", bat_color)
     soc_val = soc if soc is not None else 0
     _bat_icon(d, W//2-22, 30, W//2+22, 49, soc_val, bat_color)
-    f_v = ImageFont.truetype(FONT_PATH, 18)
+    f_v = cargar_fuente(18)
     soc_txt = f"{soc:.0f}%" if soc is not None else "N/D"
     d.text((W//2, 68), soc_txt, font=f_v, fill=bat_color, anchor="mm")
     return img
@@ -751,8 +765,8 @@ def _panel_energia_card(deck, tam, titulo, w_now, kwh_hoy, color):
     color = _chrome_std(d, tam, titulo, color)
     cx, cy, r = W//2, 42, 11
     d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=color)
-    f_v = ImageFont.truetype(FONT_PATH, 13)
-    f_s = ImageFont.truetype(FONT_PATH, 9)
+    f_v = cargar_fuente(13)
+    f_s = cargar_fuente(9)
     d.text((W//2, 62), _fmt_power(w_now),      font=f_v, fill="white",   anchor="mm")
     d.text((W//2, 75), _fmt_energy(kwh_hoy),   font=f_s, fill="#aaaaaa", anchor="mm")
     return img
@@ -764,8 +778,8 @@ def _panel_bat_flujo(deck, tam, bat_w, bat_v, bat_color):
     d   = ImageDraw.Draw(img)
     W, H = tam
     bat_color = _chrome_std(d, tam, "Bat Flujo", bat_color)
-    f_v = ImageFont.truetype(FONT_PATH, 14)
-    f_s = ImageFont.truetype(FONT_PATH, 9)
+    f_v = cargar_fuente(14)
+    f_s = cargar_fuente(9)
     if   bat_w >  5:  arrow, fc = "↑ Cargando", "#33ff33"
     elif bat_w < -5:  arrow, fc = "↓ Descarga", "#ff9933"
     else:             arrow, fc = "— Idle",      "#666666"
@@ -968,7 +982,7 @@ def _panel_pv_barras(deck, tam, items, frame_color):
         if con_marco():
             d.rounded_rectangle((4, 4, W-5, H-5), radius=10,
                                  outline=frame_color, width=2)
-        f_tit = ImageFont.truetype(FONT_PATH, 13)
+        f_tit = cargar_fuente(13)
         d.text((W//2, 15), "PV", font=f_tit, fill=frame_color, anchor="mm")
         d.line((10, 27, W-11, 27), fill=frame_color, width=1)
 
@@ -995,20 +1009,16 @@ def _panel_pv_barras(deck, tam, items, frame_color):
     lbl_y   = H - 6
     bar_h   = bar_bot - bar_top
 
-    f_val = ImageFont.truetype(FONT_PATH, 9)
-    f_lbl = ImageFont.truetype(FONT_PATH, 9)
+    f_val = cargar_fuente(9)
+    f_lbl = cargar_fuente(9)
 
     for i, it in enumerate(items):
         lbl, v, color = it[0], it[1], it[2]
         extra = it[3] if len(it) >= 4 else None
 
         x = pad_x + i * (slot_w + gap) + bar_off
-        # Valor encima — base + extra apilado si lo hay
+        # Valor encima (formato compacto)
         v_txt = _fmt_w_compact(v)
-        if extra and extra[0] > 0:
-            # "USO+CHG": muestra ambos compactamente
-            v_txt = f"{_fmt_w_compact(v)}+{_fmt_w_compact(extra[0])}"
-            v_txt = _fmt_w_compact(v)  # demasiado ancho — vuelve al simple
         d.text((x + bar_w//2, val_y), v_txt,
                 font=f_val, fill="white", anchor="mm")
         # Caja

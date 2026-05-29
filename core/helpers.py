@@ -1,9 +1,18 @@
 """Helpers puros — sin estado mutable propio."""
+import functools
 import os
 import subprocess
 from PIL import ImageFont
 
 from .config import FONT_PATH
+
+
+@functools.lru_cache(maxsize=256)
+def cargar_fuente(size, font_path=None):
+    """Fuente truetype memoizada por (path, size). truetype parsea el archivo
+    de disco en cada llamada, y el render la pide muchas veces por frame —
+    cachearla ahorra ese I/O. Usar SIEMPRE en lugar de ImageFont.truetype."""
+    return ImageFont.truetype(font_path or FONT_PATH, size)
 
 
 def _env_sesion():
@@ -23,7 +32,12 @@ def _env_sesion():
 def _run(cmd):
     """Bloqueante. Loguea stderr si no-cero. Usar para commands cortos donde
     importa el resultado (pactl, etc.). Para apps fire-and-forget, usar _lanzar."""
-    res = subprocess.run(cmd, shell=True, env=_env_sesion(), capture_output=True, text=True)
+    try:
+        res = subprocess.run(cmd, shell=True, env=_env_sesion(),
+                             capture_output=True, text=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        print(f"[ERR] '{cmd}' → timeout (>5s)", flush=True)
+        return
     if res.returncode != 0:
         print(f"[ERR] '{cmd}' → {res.stderr.strip()}", flush=True)
 
@@ -69,12 +83,11 @@ def _ip_2_lineas(ip):
 
 def _fit_font(dibujo, txt, max_width, max_size, min_size=10, font_path=None):
     """Devuelve la fuente más grande (≤ max_size) cuyo render de `txt` cabe en max_width."""
-    fp = font_path or FONT_PATH
     for size in range(max_size, min_size - 1, -1):
-        f = ImageFont.truetype(fp, size)
+        f = cargar_fuente(size, font_path)
         if dibujo.textlength(txt, font=f) <= max_width:
             return f
-    return ImageFont.truetype(fp, min_size)
+    return cargar_fuente(min_size, font_path)
 
 
 def obtener_color_rango(valor):

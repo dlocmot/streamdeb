@@ -4,6 +4,7 @@ import psutil
 from PIL import Image, ImageDraw, ImageFont
 
 from core.config import FONT_PATH
+from core.helpers import cargar_fuente
 
 
 def render_pagina_banner(deck, tam, cols, rows, api_info):
@@ -18,14 +19,14 @@ def render_pagina_banner(deck, tam, cols, rows, api_info):
     fecha = ahora.strftime("%a %d %b %Y").upper()
     cw, ch = full.size
 
-    fclock = ImageFont.truetype(FONT_PATH, int(H * 1.9))
+    fclock = cargar_fuente(int(H * 1.9))
     d.text((cw // 2, int(ch * 0.42)), hora, font=fclock, fill="#ffffff", anchor="mm")
-    ffecha = ImageFont.truetype(FONT_PATH, int(H * 0.42))
+    ffecha = cargar_fuente(int(H * 0.42))
     d.text((cw // 2, int(ch * 0.78)), fecha, font=ffecha, fill="#888888", anchor="mm")
 
     cpu = int(psutil.cpu_percent())
     ram = int(psutil.virtual_memory().percent)
-    fstats = ImageFont.truetype(FONT_PATH, int(H * 0.30))
+    fstats = cargar_fuente(int(H * 0.30))
     d.text((W // 2, ch - int(H * 0.35)), f"CPU {cpu}%   RAM {ram}%",
            font=fstats, fill="#33ccff", anchor="lm")
 
@@ -38,7 +39,7 @@ def render_pagina_banner(deck, tam, cols, rows, api_info):
     d.text((cw - W // 2, ch - int(H * 0.35)),
            awa_txt, font=fstats, fill=awa_col, anchor="rm")
 
-    fhint = ImageFont.truetype(FONT_PATH, int(H * 0.20))
+    fhint = cargar_fuente(int(H * 0.20))
     d.text((cw - 12, int(H * 0.30)), "tap any key", font=fhint, fill="#444444", anchor="rm")
 
     imgs = {}

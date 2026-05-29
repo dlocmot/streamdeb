@@ -6,6 +6,7 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
 from core.config import FONT_PATH
+from core.helpers import cargar_fuente
 from core.iconos import iconify_png as _iconify_png
 from core.widgets import _nuevo_lienzo, con_marco, dibujar_btn_icono_nav
 
@@ -59,7 +60,7 @@ def dibujar_vent_preview(deck, tamaño, label, x_ini, x_fin, y_ini, y_fin, color
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
     if con_marco():
         dibujo.rounded_rectangle(rect, radius=10, outline=color, width=2)
-    f_tit = ImageFont.truetype(FONT_PATH, 13)
+    f_tit = cargar_fuente(13)
     dibujo.text((tamaño[0]//2, 15), label, font=f_tit, fill=color, anchor="mm")
     dibujo.line((10, 27, tamaño[0]-11, 27), fill=color, width=1)
     pad_x, pad_top, pad_bot = 14, 36, 14

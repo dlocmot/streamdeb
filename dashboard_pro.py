@@ -305,13 +305,14 @@ def tareas_red_fondo():
             req = urllib.request.Request("https://api.ipify.org")
             with urllib.request.urlopen(req, timeout=3) as resp:
                 net_info["ip_pub"] = resp.read().decode('utf-8')
-        except: pass
+        except Exception: pass
 
         for clave, ip in [("ping_gw", "192.168.18.1"), ("ping_dns1", "1.1.1.1"), ("ping_dns2", "8.8.8.8"), ("ping_api", API_IP)]:
             try:
-                res = subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True, text=True)
+                res = subprocess.run(["ping", "-c", "1", "-W", "1", ip],
+                                     capture_output=True, text=True, timeout=3)
                 net_info[clave] = float(res.stdout.split("time=")[1].split(" ")[0]) if "time=" in res.stdout else -1.0
-            except: net_info[clave] = -1.0
+            except Exception: net_info[clave] = -1.0
             if net_info[clave] > 0:
                 ping_history[clave].append(net_info[clave])
 
@@ -611,18 +612,23 @@ def _accion_boton(deck, tecla):
             serial_b = DECK_SERIAL or ""
             print(f"[CONFIG] deck {serial_b} → AWA kiosko", flush=True)
             unit = f"streamdeb-kiosk-b-{int(time.time())}"
+            # Derivar rutas del propio módulo/intérprete en vez de hardcodearlas,
+            # para que el botón kiosko funcione si el repo se mueve o se despliega
+            # en otra máquina/usuario.
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            kiosk_py = os.path.join(base_dir, "awa_kiosk.py")
             cmd_arranque = (
                 f"sleep 1.5 && "
                 f"STREAMDEB_DECK_SERIAL={serial_b} STREAMDEB_FORCE_DARK=1 "
-                f"/home/jfqp/Documents/GitHub/streamdeb/.venv/bin/python "
-                f"/home/jfqp/Documents/GitHub/streamdeb/awa_kiosk.py"
+                f"{sys.executable} {kiosk_py}"
             )
             subprocess.Popen(
                 ["systemd-run", "--user", "--no-block",
                  f"--unit={unit}",
                  "--description=AWA kiosko en deck B",
                  "--setenv=DISPLAY=:0",
-                 "--setenv=STREAMDEB_API_HOST=http://192.168.18.10",
+                 f"--setenv=STREAMDEB_API_HOST={API_HOST}",
+                 # Nota: usuario propio del kiosko (distinto de API_USER).
                  "--setenv=STREAMDEB_API_USER=Dinamo",
                  "bash", "-lc", cmd_arranque],
                 start_new_session=True,

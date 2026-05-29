@@ -2,8 +2,9 @@
 from plugins.pedal_apps import register
 
 BINDINGS = {
-    "tap_izq":    ("← File",  "<Ctrl><PageUp>")  if False else ("← Tab",  "<Ctrl><Shift>Tab"),
-    "tap_der":    ("File →",  "<Ctrl><PageDown>") if False else ("Tab →", "<Ctrl>Tab"),
+    # alt: navegación entre archivos con <Ctrl><PageUp>/<PageDown>
+    "tap_izq":    ("← Tab",  "<Ctrl><Shift>Tab"),
+    "tap_der":    ("Tab →",  "<Ctrl>Tab"),
     "hold_izq":   ("Find",    "<Ctrl>f"),
     "hold_der":   ("Replace", "<Ctrl>h"),
     "double_cen": ("Save",    "<Ctrl>s"),

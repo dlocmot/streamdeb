@@ -3,6 +3,7 @@
 - Long-press ≥ LONGPRESS_S: reset a idle.
 - Notificación desktop al fin de cada fase."""
 import subprocess
+import threading
 import time
 
 from core.config import LONGPRESS_S
@@ -15,9 +16,12 @@ POMODORO_FOCUS_S = 25 * 60
 POMODORO_BREAK_S = 5  * 60
 TECLA_SIS        = 27
 
-# Estado interno (mutado por _pomodoro_evento y tareas_fondo)
+# Estado interno (mutado por evento [input], tareas_fondo [bg] y tick desde
+# el render → tres threads). _lock serializa las transiciones para que la
+# notificación de fin de fase no se dispare dos veces.
 state    = "idle"     # idle | running | break
 phase_t  = 0.0        # epoch en que arrancó la fase actual
+_lock    = threading.Lock()
 
 # Hook que dashboard_pro setea para forzar redibujo tras cambio de estado
 _forzar_redraw_fn = lambda: None
@@ -31,30 +35,30 @@ def tick():
     Devuelve (state, restante_s, total_s, color, label)."""
     global state, phase_t
     ahora = time.time()
-    if state == "running":
-        if ahora - phase_t >= POMODORO_FOCUS_S:
+    notif = None
+    with _lock:
+        if state == "running" and ahora - phase_t >= POMODORO_FOCUS_S:
             state = "break"
             phase_t = ahora
-            try:
-                subprocess.Popen(["notify-send", "Pomodoro", "Foco completo · descanso",
-                                   "-t", "8000"], env=_env_sesion(),
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception: pass
-    if state == "break":
-        if ahora - phase_t >= POMODORO_BREAK_S:
+            notif = "Foco completo · descanso"
+        if state == "break" and ahora - phase_t >= POMODORO_BREAK_S:
             state = "idle"
             phase_t = 0.0
-            try:
-                subprocess.Popen(["notify-send", "Pomodoro", "Descanso terminado · listo",
-                                   "-t", "8000"], env=_env_sesion(),
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception: pass
+            notif = "Descanso terminado · listo"
+        st, pt = state, phase_t
+    # notify-send fuera del lock (solo un thread alcanza la transición).
+    if notif:
+        try:
+            subprocess.Popen(["notify-send", "Pomodoro", notif, "-t", "8000"],
+                             env=_env_sesion(),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception: pass
 
-    if state == "running":
-        rest = max(0, POMODORO_FOCUS_S - (ahora - phase_t))
+    if st == "running":
+        rest = max(0, POMODORO_FOCUS_S - (ahora - pt))
         return ("running", rest, POMODORO_FOCUS_S, "#ff6644", "Foco")
-    if state == "break":
-        rest = max(0, POMODORO_BREAK_S - (ahora - phase_t))
+    if st == "break":
+        rest = max(0, POMODORO_BREAK_S - (ahora - pt))
         return ("break", rest, POMODORO_BREAK_S, "#33dd66", "Break")
     return ("idle", POMODORO_FOCUS_S, POMODORO_FOCUS_S, "#888888", "Pomo")
 
@@ -63,16 +67,17 @@ def evento(held):
     """held >=LONGPRESS_S = reset a idle. Tap corto = avanza estado."""
     global state, phase_t
     ahora = time.time()
-    if held >= LONGPRESS_S:
-        state = "idle"
-        phase_t = 0.0
-        print(f"[POMO] reset (long {held:.1f}s)", flush=True)
-    else:
-        if state == "idle":
-            state, phase_t = "running", ahora
-        else:  # running o break → cancela / skip
-            state, phase_t = "idle", 0.0
-        print(f"[POMO] state={state}", flush=True)
+    with _lock:
+        if held >= LONGPRESS_S:
+            state = "idle"
+            phase_t = 0.0
+            print(f"[POMO] reset (long {held:.1f}s)", flush=True)
+        else:
+            if state == "idle":
+                state, phase_t = "running", ahora
+            else:  # running o break → cancela / skip
+                state, phase_t = "idle", 0.0
+            print(f"[POMO] state={state}", flush=True)
     _forzar_redraw_fn()
 
 
