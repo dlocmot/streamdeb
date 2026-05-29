@@ -47,6 +47,7 @@ from core.iconos import (
 )
 from core.widgets import (
     _nuevo_lienzo, set_con_marco_fn, set_perfil_fn, set_lcars_theme_fn,
+    limpiar_cache_paneles,
     dibujar_panel_metrica, dibujar_panel_info, dibujar_panel_2lineas,
     dibujar_lanzador, dibujar_lanzador_web,
     dibujar_boton_nav, dibujar_boton_fijo, dibujar_boton_x, dibujar_negro,
@@ -603,6 +604,7 @@ def _accion_boton(deck, tecla):
             _gear_cache.clear(); _app_cache.clear()
             _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
             _nav_cache.clear()  # los nav buttons dependen del perfil/tema
+            limpiar_cache_paneles()  # los paneles también
             _invalidar_render_cache()
             print(f"[CONFIG] perfil_visual={perfil_visual} tema_lcars={tema_lcars}", flush=True)
             forzar_redraw = True; _persist_save()
@@ -1027,7 +1029,7 @@ PAGINAS_RENDER = {
 # son estáticas o event-driven y se quedan en 1s para responder al instante.
 # Un press despierta el loop de inmediato en cualquier caso.
 PAGINAS_LIVE = {1, 2, 9, 10, 11, 13, 14, 15, 16, 17}
-REFRESH_LIVE = 1.5
+REFRESH_LIVE = 1.0
 
 
 # --- Loop principal ---

@@ -8,6 +8,7 @@ Perfiles visuales:
   3 = LCARS estilo TNG (chrome propio: elbow superior + paleta Okuda)
 """
 import colorsys
+import functools
 import os
 from PIL import Image, ImageDraw, ImageFont
 
@@ -45,6 +46,69 @@ def perfil():
 
 def es_lcars():
     return _perfil_fn() == 3
+
+
+# --- Cache de paneles por contenido ------------------------------------
+# Los tiles de métrica/info/pings se reconstruyen en cada frame aunque su
+# valor casi nunca cambie (RAM, disco, uptime...). Memoizamos el PIL por
+# (estado visual, args) para reconstruir sólo los que cambian (CPU, red).
+# El dedup de bytes en render ya evitaba el USB; esto evita además el build.
+_panel_cache = {}
+_PANEL_CACHE_MAX = 256
+
+
+def _panel_visual_key():
+    """Estado visual global que afecta cómo se dibuja cualquier panel.
+    Devuelve None si no se debe cachear (tema LCARS animado → cada frame
+    es único)."""
+    p = _perfil_fn()
+    if p != 3:
+        return (p, _con_marco_fn())
+    try:
+        from plugins import themes
+        t = themes.active() or {}
+        if t.get("animated"):
+            return None
+        return (3, _lcars_theme_fn(), t.get("chrome_style"))
+    except Exception:
+        return (3, _lcars_theme_fn())
+
+
+def _to_hashable(obj):
+    if isinstance(obj, (list, tuple)):
+        return tuple(_to_hashable(x) for x in obj)
+    return obj
+
+
+def limpiar_cache_paneles():
+    """Invalida el cache de paneles (perfil/tema cambió)."""
+    _panel_cache.clear()
+
+
+def _memoize_panel(fn):
+    """Cachea el PIL de un panel por (estado visual, tamaño, args). Si algún
+    arg no es hasheable (p.ej. un color_fn closure) o el tema es animado,
+    no cachea y reconstruye normal."""
+    @functools.wraps(fn)
+    def wrapper(deck, tamaño, *args, **kwargs):
+        vk = _panel_visual_key()
+        if vk is None:
+            return fn(deck, tamaño, *args, **kwargs)
+        try:
+            ckey = (fn.__name__, tuple(tamaño),
+                    _to_hashable(args),
+                    _to_hashable(tuple(sorted(kwargs.items()))))
+            full = (vk, ckey)
+        except TypeError:
+            return fn(deck, tamaño, *args, **kwargs)
+        img = _panel_cache.get(full)
+        if img is None:
+            img = fn(deck, tamaño, *args, **kwargs)
+            if len(_panel_cache) >= _PANEL_CACHE_MAX:
+                _panel_cache.clear()
+            _panel_cache[full] = img
+        return img
+    return wrapper
 
 
 # --- LCARS (paleta canónica ha-lcars / theLCARS.com) ------------------
@@ -343,6 +407,7 @@ def _nuevo_lienzo(tamaño):
     return Image.new("RGBA", tamaño, (0, 0, 0, 0))
 
 
+@_memoize_panel
 def dibujar_panel_metrica(deck, tamaño, titulo, valor, color,
                            pct=None, valor_color=None, sub=None):
     """Estilo unificado: marco redondeado + título + separador + valor + barra inferior."""
@@ -438,6 +503,7 @@ def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn):
     return imagen
 
 
+@_memoize_panel
 def dibujar_panel_pings(deck, tamaño, titulo, items):
     """Panel header + N barras verticales para latencias.
     items: lista [(label_corto, pct, color, ms_str), ...]. ms_str se dibuja
@@ -480,6 +546,7 @@ def dibujar_panel_pings(deck, tamaño, titulo, items):
     return imagen
 
 
+@_memoize_panel
 def dibujar_panel_info(deck, tamaño, titulo, valor, frame_color, valor_color="#ffffff"):
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
@@ -498,6 +565,7 @@ def dibujar_panel_info(deck, tamaño, titulo, valor, frame_color, valor_color="#
     return imagen
 
 
+@_memoize_panel
 def dibujar_panel_2lineas(deck, tamaño, titulo, valor, frame_color, valor_color="#ffffff"):
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
