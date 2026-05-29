@@ -303,6 +303,20 @@ class ConfigWindow(Gtk.ApplicationWindow):
         # 50 ms — mirror prácticamente instantáneo. Diff por tile + swap
         # de paintable es barato; sin rebuild del grid en cada tick.
         GLib.timeout_add(50, self._poll_external_changes)
+        # Marcador "GUI abierta": el deck sólo vuelca los PNGs de preview
+        # mientras este marcador exista y sea reciente (modo auto). Lo
+        # tocamos ya y cada 3s; al cerrar la GUI caduca (<10s) y el deck
+        # vuelve a ir fluido sin escribir a disco por frame.
+        self._touch_watch_marker()
+        GLib.timeout_add_seconds(3, self._touch_watch_marker)
+
+    def _touch_watch_marker(self):
+        try:
+            _PREVIEW_ROOT.mkdir(parents=True, exist_ok=True)
+            (_PREVIEW_ROOT / ".watching").touch()
+        except OSError:
+            pass
+        return True  # re-arma el timer
 
     # ── carga / save ──
 

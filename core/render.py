@@ -23,10 +23,41 @@ _last_sent = {}              # tecla → bytes (dedup USB writes)
 # --- Live preview (mirror para la GUI configuradora) ------------------
 # Cada vez que un tile se compone, se guarda como PNG en
 # $STREAMDEB_PREVIEW_DIR/page_<id>/tile_<key>.png. La GUI lo lee y
-# refleja exactamente lo que el deck muestra. Una sola escritura por
-# tile redibujado, controlado por env var (default ON, set =0 para apagar).
-_LIVE_PREVIEW = os.environ.get("STREAMDEB_LIVE_PREVIEW", "1") != "0"
+# refleja lo que el deck muestra. PERO escribir 32 PNGs por frame en el
+# hilo de render mata la fluidez del deck (~80ms+ de disco por redibujo,
+# intercalado con los writes USB → dibujo "fila por fila" lento).
+#
+# Modo (env STREAMDEB_LIVE_PREVIEW): "0"=off, "1"=on siempre, "auto"=on
+# sólo si la GUI está abierta. En "auto" la GUI toca PREVIEW_DIR/.watching
+# periódicamente; si el marcador existe y es reciente (<10s), volcamos.
+# Default "auto" → el deck va fluido salvo cuando configuras de verdad.
+_LIVE_PREVIEW_MODE = os.environ.get("STREAMDEB_LIVE_PREVIEW", "auto").lower()
+_WATCH_MARKER = os.path.join(PREVIEW_DIR, ".watching")
+_WATCH_TTL = 10.0           # marcador válido si su mtime es < 10s
+_WATCH_CHECK_INTERVAL = 2.0  # re-stat del marcador como mucho cada 2s
 _current_page_id = 0  # lo wirea dashboard_pro con set_current_page()
+
+_preview_on = False    # estado cacheado del modo auto
+_preview_check_t = 0.0
+
+
+def _preview_enabled():
+    """¿Hay que volcar PNGs de preview? Cacheado para no hacer stat por tile."""
+    if _LIVE_PREVIEW_MODE == "1":
+        return True
+    if _LIVE_PREVIEW_MODE == "0":
+        return False
+    # auto: re-evalúa el marcador como mucho cada _WATCH_CHECK_INTERVAL.
+    global _preview_on, _preview_check_t
+    import time as _t
+    now = _t.time()
+    if now - _preview_check_t >= _WATCH_CHECK_INTERVAL:
+        _preview_check_t = now
+        try:
+            _preview_on = (now - os.path.getmtime(_WATCH_MARKER)) < _WATCH_TTL
+        except OSError:
+            _preview_on = False
+    return _preview_on
 
 
 def set_current_page(page_id: int):
@@ -36,7 +67,7 @@ def set_current_page(page_id: int):
     al deck en tiempo real."""
     global _current_page_id
     _current_page_id = page_id
-    if not _LIVE_PREVIEW:
+    if not _preview_enabled():
         return
     try:
         os.makedirs(PREVIEW_DIR, exist_ok=True)
@@ -51,7 +82,7 @@ _dump_errors_logged = 0
 
 def _dump_tile_preview(tecla: int, fondo: Image.Image):
     global _dump_errors_logged
-    if not _LIVE_PREVIEW or _current_page_id == 0:
+    if _current_page_id == 0 or not _preview_enabled():
         return
     try:
         page_dir = os.path.join(PREVIEW_DIR, f"page_{_current_page_id}")
