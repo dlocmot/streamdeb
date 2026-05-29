@@ -6,14 +6,37 @@ La fila 0 lleva una topbar continua, la columna 0 un sidebar continuo, y el
 codo (curva de cuarto de stadium concéntrico) vive sólo en el tile (0,0).
 Los tiles internos no llevan chrome global — sólo el contenido del widget.
 """
+import io
 import math
 import os
 from PIL import Image, ImageDraw, ImageFont
-from StreamDeck.ImageHelpers import PILHelper
 
 from . import wallpaper as wp
 from .config import FONT_PATH, PREVIEW_DIR
 from .helpers import cargar_fuente
+
+
+# Calidad JPEG del deck. PILHelper.to_native_format usa quality=100 (~6KB/tile);
+# el write USB escala con los bytes, así que ~16ms/tile. q=85 es visualmente
+# indistinguible en 96×96 y casi mitad de bytes → page-change ~2x más rápido.
+DECK_JPEG_QUALITY = int(os.environ.get("STREAMDEB_JPEG_QUALITY", "85"))
+
+
+def _to_native(deck, image):
+    """Como PILHelper.to_native_key_format pero con calidad configurable
+    (la lib fuerza 100). Replica resize/rotation/flip para ser model-agnóstico."""
+    fmt = deck.key_image_format()
+    if image.size != fmt["size"]:
+        image.thumbnail(fmt["size"])
+    if fmt["rotation"]:
+        image = image.rotate(fmt["rotation"])
+    if fmt["flip"][0]:
+        image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    if fmt["flip"][1]:
+        image = image.transpose(Image.FLIP_TOP_BOTTOM)
+    with io.BytesIO() as buf:
+        image.save(buf, fmt["format"], quality=DECK_JPEG_QUALITY)
+        return buf.getvalue()
 
 
 _finalizar_cache = {}        # (id(pil)|0, wallpaper_idx, tecla) → bytes JPEG
@@ -259,7 +282,7 @@ def finalizar(deck, tamaño, imagen_rgba, tecla):
     # se ve separado. Mantenemos `set_lcars_config` sólo para invalidar
     # cache al cambiar perfil; el look LCARS lo dibuja cada widget per-tile.
     _dump_tile_preview(tecla, fondo)
-    nb = PILHelper.to_native_format(deck, fondo)
+    nb = _to_native(deck, fondo)
     if cache_key is not None:
         if len(_finalizar_cache) >= _FINALIZAR_CACHE_MAX:
             _finalizar_cache.clear()

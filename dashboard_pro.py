@@ -1139,10 +1139,10 @@ def iniciar_dashboard():
                 # señaliza al DummyDeck cuándo redibujar el mosaico.
                 with deck:
                     if page_now != pagina_anterior or forzar_redraw:
-                        if page_now != pagina_anterior:
-                            # Cambio de página: descarta el dedup (mismo tecla
-                            # con contenido distinto fuerza redraw real).
-                            render_core._last_sent.clear()
+                        # NO limpiamos _last_sent en cambio de página: el dedup
+                        # por bytes ya re-pushea sólo los tiles cuyo contenido
+                        # cambió. Los idénticos entre páginas (la fila nav 0-7)
+                        # se saltan → transición mucho más rápida (menos USB).
                         for k in range(deck.key_count()):
                             if k not in imgs:
                                 _push_key(deck, k, _finalizar(deck, tam, None, k))
