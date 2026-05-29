@@ -1163,9 +1163,13 @@ def iniciar_dashboard():
                 _invalidar_render_cache()
                 print("[OK] reconectado", flush=True)
 
-            # En vez de sleep fijo: wait hasta 1s O hasta que algo dispare
-            # el event (press físico, inject, hooks de ctx/etc).
-            _redraw_event.wait(timeout=1)
+            # En vez de sleep fijo: wait hasta N s O hasta que algo dispare
+            # el event (press físico, inject, hooks de ctx/etc). Un press
+            # despierta el loop al instante, así que este timeout sólo marca
+            # el auto-refresh de datos vivos. SIS (la página con más tiles
+            # dinámicos) refresca cada 2s para repintar menos seguido; el
+            # resto cada 1s.
+            _redraw_event.wait(timeout=2 if pagina_actual == 1 else 1)
             _redraw_event.clear()
 
     finally:

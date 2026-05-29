@@ -13,6 +13,19 @@ from core.widgets import dibujar_panel_metrica, dibujar_panel_cores, dibujar_pan
 # Highwater de throughput de red para escalar las barras de DOWN/UP.
 max_visto_down = 1024.0
 max_visto_up   = 1024.0
+_net_t         = None   # timestamp de la última muestra de red (para kb/s)
+
+
+def _fmt_uptime(segundos):
+    """Uptime legible sin segundos (cambia como mucho cada minuto → el tile
+    no repinta cada frame). 'Nd Nh' / 'Nh Nm' / 'Nm'."""
+    s = max(0, int(segundos))
+    d, rem = divmod(s, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:  return f"{d}d {h}h"
+    if h:  return f"{h}h {m}m"
+    return f"{m}m"
 
 
 # Top procesos (mutado por tareas_fondo). Cada item: (nombre, valor_pct).
@@ -305,7 +318,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
                             widgets_extras=None):
     """Render SIS. `widgets_extras`: dict {tecla: PIL} de plugins externos
     (clima, docker) — se mergea al final."""
-    global max_visto_down, max_visto_up
+    global max_visto_down, max_visto_up, _net_t
     up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
     cpu_t = psutil.cpu_percent()
@@ -313,16 +326,22 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     ram   = psutil.virtual_memory().percent
     swp   = psutil.swap_memory().percent
     disk  = psutil.disk_usage('/')
-    dn_kbps = ((cur_net.bytes_recv - last_net.bytes_recv) * 8) / 1024
-    up_kbps = ((cur_net.bytes_sent - last_net.bytes_sent) * 8) / 1024
+    # Rate normalizado a kb/s: el intervalo entre frames ya no es fijo (SIS
+    # refresca cada 2s), así que dividimos por el tiempo real transcurrido
+    # en vez de asumir 1s — si no, el número se infla con el intervalo.
+    ahora = time.time()
+    elapsed = max(0.1, ahora - _net_t) if _net_t else 1.0
+    _net_t = ahora
+    dn_kbps = ((cur_net.bytes_recv - last_net.bytes_recv) * 8) / 1024 / elapsed
+    up_kbps = ((cur_net.bytes_sent - last_net.bytes_sent) * 8) / 1024 / elapsed
     max_visto_down = max(max_visto_down, dn_kbps)
     max_visto_up   = max(max_visto_up,   up_kbps)
     f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
 
     imgs = dict(nav_imgs)
     imgs.update({
-        # Fila 1: uptime
-        8:  dibujar_panel_metrica(deck, tam, "Uptime", _fmt_tiempo(up_t), obtener_color_rango(pct_u), pct=pct_u),
+        # Fila 1: uptime (en min/h/d — sin segundos para no repintar cada frame)
+        8:  dibujar_panel_metrica(deck, tam, "Uptime", _fmt_uptime(up_t), obtener_color_rango(pct_u), pct=pct_u),
         # Fila 2: RAM, SWAP, DISK
         16: dibujar_panel_metrica(deck, tam, "RAM",  f"{int(ram)}%", obtener_color_rango(ram), pct=ram),
         17: dibujar_panel_metrica(deck, tam, "SWAP", f"{int(swp)}%", obtener_color_rango(swp), pct=swp),
