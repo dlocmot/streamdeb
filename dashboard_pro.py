@@ -69,7 +69,7 @@ ping_history = {k: deque(maxlen=PING_HIST_LEN) for k in ("ping_gw", "ping_dns1",
 pagina_actual = 1     # 1=sistema · 2=API · 3=multimedia · 4=apps · 5=configuración
 forzar_redraw = False
 # Event para despertar el main loop inmediatamente. Cualquier callback
-# que muta state visible (press inyectado, _accion_boton, hooks pomo/ctx,
+# que muta state visible (press inyectado, _accion_boton, hooks ctx,
 # auto-fallback) lo dispara y el loop redibuja sin esperar el sleep.
 _redraw_event = threading.Event()
 brillo_actual    = 75
@@ -185,7 +185,6 @@ from plugins import banner as plugin_banner
 from plugins import awa      as plugin_awa
 from plugins import conf     as plugin_conf
 from plugins import sistema  as plugin_sistema
-from plugins import pomodoro as plugin_pomo
 from plugins import docker   as plugin_docker
 from plugins import clima    as plugin_clima
 from plugins import contexto as plugin_ctx
@@ -649,7 +648,6 @@ def _accion_boton(deck, tecla):
 
 _sis_press_t       = None  # timestamp del press en tecla SIS (0)
 _wallpaper_press_t = None  # timestamp del press en tecla wallpaper (CONF/12)
-_pomo_press_t      = None  # timestamp del press en tecla Pomodoro (SIS/15)
 
 def _wallpaper_evento(held):
     """Procesa la liberación de la tecla wallpaper. held = segundos pulsada."""
@@ -680,7 +678,7 @@ def _sis_evento(held):
     print(f"[NAV] SIS {etiqueta} ({held:.2f}s)", flush=True)
 
 def boton_presionado(deck, tecla, estado):
-    global ultimo_toque, _despertar, _wallpaper_press_t, _sis_press_t, _pomo_press_t
+    global ultimo_toque, _despertar, _wallpaper_press_t, _sis_press_t
     ultimo_toque = time.time()
 
     # Tecla SIS (0): corta = SIS, larga ≥2s = CONF (en cualquier página)
@@ -692,18 +690,6 @@ def boton_presionado(deck, tecla, estado):
             _sis_press_t = None
             if t0 is not None:
                 threading.Thread(target=_sis_evento,
-                                 args=(time.time() - t0,), daemon=True).start()
-        return
-
-    # Tecla Pomodoro (SIS/27): corta = avanza estado, larga ≥2s = reset
-    if pagina_actual == 1 and tecla == 27 and not modo_dim_activo:
-        if estado:
-            _pomo_press_t = time.time()
-        else:
-            t0 = _pomo_press_t
-            _pomo_press_t = None
-            if t0 is not None:
-                threading.Thread(target=plugin_pomo.evento,
                                  args=(time.time() - t0,), daemon=True).start()
         return
 
@@ -895,13 +881,6 @@ def botones_navegacion(deck, tam):
     # GROWATT (page 17) se entra desde SIS tecla 11 (widget_para_sistema).
     return {0: p1, 1: p2, 2: p3, 3: p4, 4: p_ctx, 6: p_keys, 7: p_vent}
 
-# Pomodoro / clima viven en plugins/. El plugin pomo necesita un hook
-# para forzar redibujo tras cambio de estado:
-def _pomo_forzar_redraw():
-    global forzar_redraw
-    forzar_redraw = True
-plugin_pomo.set_forzar_redraw_fn(_pomo_forzar_redraw)
-
 # CTX puede navegar a otras páginas (ej. WEB desde Firefox)
 def _ctx_navigate(page_id):
     global pagina_actual, forzar_redraw
@@ -933,7 +912,6 @@ _pedal_apps.sync("default")   # estado inicial hasta que CTX detecte algo
 
 def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets = {}
-    widgets.update(plugin_pomo.widget_para_sistema(deck, tam))
     widgets.update(plugin_clima.widget_para_sistema(deck, tam))
     widgets.update(plugin_docker.widget_para_sistema(deck, tam))
     widgets.update(plugin_pedal.widget_para_sistema(deck, tam))
@@ -1060,7 +1038,6 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_docker.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_docker.tareas_stats,  daemon=True).start()
     threading.Thread(target=plugin_clima.tareas_fondo,  daemon=True).start()
-    threading.Thread(target=plugin_pomo.tareas_fondo,   daemon=True).start()
     threading.Thread(target=plugin_ctx.tareas_fondo,    daemon=True).start()
     threading.Thread(target=plugin_sistema.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_pedal.tareas_fondo,   daemon=True).start()
@@ -1170,7 +1147,7 @@ def iniciar_dashboard():
                 print("[OK] reconectado", flush=True)
 
             # En vez de sleep fijo: wait hasta 1s O hasta que algo dispare
-            # el event (press físico, inject, hooks de pomodoro/ctx/etc).
+            # el event (press físico, inject, hooks de ctx/etc).
             _redraw_event.wait(timeout=1)
             _redraw_event.clear()
 

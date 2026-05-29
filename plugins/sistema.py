@@ -1,5 +1,5 @@
 """Plugin SIS (página 1): dashboard de sistema con CPU/RAM/red/pings.
-Inyecta widgets de pomodoro (15), clima (20-23) y docker entry (31).
+Inyecta widgets de clima (20-23) y docker entry (31).
 Subpágina CORES (id 13): detalle C1-C4 + top 5 CPU + top 5 MEM."""
 import time
 import threading
@@ -292,7 +292,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
                             net_info, ping_pct_relativo_fn,
                             widgets_extras=None):
     """Render SIS. `widgets_extras`: dict {tecla: PIL} de plugins externos
-    (pomodoro, clima, docker) — se mergea al final."""
+    (clima, docker) — se mergea al final."""
     global max_visto_down, max_visto_up
     up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
@@ -347,7 +347,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
             items.append((lb, 0, "#666666", "Err"))
     imgs[25] = dibujar_panel_pings(deck, tam, "Pings", items)
 
-    # Widgets inyectados por otros plugins (pomodoro, clima, docker)
+    # Widgets inyectados por otros plugins (clima, docker)
     if widgets_extras:
         imgs.update(widgets_extras)
     return imgs
