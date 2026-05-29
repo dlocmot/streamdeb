@@ -87,11 +87,14 @@ def _dump_tile_preview(tecla: int, fondo: Image.Image):
     try:
         page_dir = os.path.join(PREVIEW_DIR, f"page_{_current_page_id}")
         os.makedirs(page_dir, exist_ok=True)
-        final_path = os.path.join(page_dir, f"tile_{tecla}.png")
-        # Escritura atómica: tempfile + rename. format='PNG' explícito —
-        # PIL infiere por extensión y `.tmp` la rompe.
+        final_path = os.path.join(page_dir, f"tile_{tecla}.jpg")
+        # JPEG en vez de PNG: ~4-7x más barato de codificar (el encode es el
+        # cuello de botella, no la escritura — PREVIEW_DIR ya es tmpfs/RAM).
+        # `fondo` es RGB (compuesto sobre negro), así que no perdemos alpha.
+        # Escritura atómica: tempfile + rename. format explícito porque el
+        # sufijo `.tmp` impide que PIL lo infiera por extensión.
         tmp_path = final_path + ".tmp"
-        fondo.save(tmp_path, format="PNG")
+        fondo.save(tmp_path, format="JPEG", quality=85)
         os.replace(tmp_path, final_path)
     except Exception as e:
         # No tumbar el render, pero loguear los primeros 10 errores para

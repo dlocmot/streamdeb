@@ -107,11 +107,11 @@ def _page_id_for(page_name: str) -> int | None:
 
 
 def _live_tile_path(page_name: str, key: int) -> Path | None:
-    """Devuelve el path al PNG en vivo del tile, o None si no existe."""
+    """Devuelve el path al JPEG en vivo del tile, o None si no existe."""
     page_id = _page_id_for(page_name)
     if page_id is None:
         return None
-    p = _PREVIEW_ROOT / f"page_{page_id}" / f"tile_{key}.png"
+    p = _PREVIEW_ROOT / f"page_{page_id}" / f"tile_{key}.jpg"
     return p if p.exists() else None
 
 
@@ -437,7 +437,7 @@ class ConfigWindow(Gtk.ApplicationWindow):
             page_dir = _PREVIEW_ROOT / f"page_{page_id}"
             if page_dir.exists():
                 for k in range(32):
-                    f = page_dir / f"tile_{k}.png"
+                    f = page_dir / f"tile_{k}.jpg"
                     if not f.exists():
                         continue
                     try:
