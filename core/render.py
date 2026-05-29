@@ -19,7 +19,7 @@ from .helpers import cargar_fuente
 # Calidad JPEG del deck. PILHelper.to_native_format usa quality=100 (~6KB/tile);
 # el write USB escala con los bytes, así que ~16ms/tile. q=85 es visualmente
 # indistinguible en 96×96 y casi mitad de bytes → page-change ~2x más rápido.
-DECK_JPEG_QUALITY = int(os.environ.get("STREAMDEB_JPEG_QUALITY", "78"))
+DECK_JPEG_QUALITY = int(os.environ.get("STREAMDEB_JPEG_QUALITY", "90"))
 
 
 def _to_native(deck, image):
