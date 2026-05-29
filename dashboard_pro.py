@@ -1021,6 +1021,14 @@ PAGINAS_RENDER = {
     17: render_pagina_growatt,
 }
 
+# Páginas "live": muestran datos que cambian con el tiempo (métricas,
+# polling, reloj), así que se benefician de un auto-refresh periódico.
+# Refrescan cada REFRESH_LIVE s; el resto (MEDIA/APP/CONF/WEB/KEYS/VENT/CTX)
+# son estáticas o event-driven y se quedan en 1s para responder al instante.
+# Un press despierta el loop de inmediato en cualquier caso.
+PAGINAS_LIVE = {1, 2, 9, 10, 11, 13, 14, 15, 16, 17}
+REFRESH_LIVE = 1.5
+
 
 # --- Loop principal ---
 
@@ -1166,10 +1174,10 @@ def iniciar_dashboard():
             # En vez de sleep fijo: wait hasta N s O hasta que algo dispare
             # el event (press físico, inject, hooks de ctx/etc). Un press
             # despierta el loop al instante, así que este timeout sólo marca
-            # el auto-refresh de datos vivos. SIS (la página con más tiles
-            # dinámicos) refresca cada 2s para repintar menos seguido; el
-            # resto cada 1s.
-            _redraw_event.wait(timeout=2 if pagina_actual == 1 else 1)
+            # el auto-refresh de datos vivos: las páginas live (SIS, métricas,
+            # polling, reloj) repintan cada REFRESH_LIVE s; las estáticas/
+            # event-driven cada 1s para no retrasar su respuesta.
+            _redraw_event.wait(timeout=REFRESH_LIVE if pagina_actual in PAGINAS_LIVE else 1)
             _redraw_event.clear()
 
     finally:
