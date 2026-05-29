@@ -1,13 +1,11 @@
 # Servicio de SISTEMA (root): reinicia el servicio de usuario streamdeb al
-# salir de suspensión. Tras un suspend, el handle USB del Stream Deck queda
+# salir de suspensión. Tras un suspend el handle USB del Stream Deck queda
 # inválido y al despertar el device se re-enumera; el loop de render le sigue
 # escribiendo al handle viejo sin lanzar excepción → pantalla congelada. La
 # forma fiable de recuperarlo es reiniciar el servicio en el resume.
 #
 # Instalar (una vez, como root):
-#   sudo cp systemd/streamdeb-resume.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable streamdeb-resume.service
+#   sudo bash systemd/install-resume-hook.sh
 [Unit]
 Description=Reinicia streamdeb (Stream Deck) al salir de suspensión
 After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
@@ -16,9 +14,9 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 Type=oneshot
 # Pequeña espera para que el USB termine de re-enumerarse antes de reabrir.
 ExecStartPre=/bin/sleep 3
-# Reinicia el servicio de usuario de jfqp (uid 1000) vía su instancia de
-# systemd (linger=yes la mantiene viva). --machine apunta al user manager.
-ExecStart=/usr/bin/systemctl --machine=jfqp@.host --user restart streamdeb.service
+# Reinicia el servicio de usuario de jfqp (uid 1000). su + XDG_RUNTIME_DIR
+# apunta systemctl --user a la instancia de usuario (linger=yes la mantiene).
+ExecStart=/bin/su jfqp -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart streamdeb.service"
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
