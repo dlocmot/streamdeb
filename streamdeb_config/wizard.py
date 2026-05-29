@@ -20,7 +20,40 @@ from gi.repository import Gtk, GLib
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DETECT_SCRIPT = _REPO_ROOT / "bin" / "detect-decks"
+
+# Enumeración de Stream Decks (antes bin/detect-decks). Se ejecuta como
+# subproceso aparte para conservar el timeout de 5s (un USB colgado no
+# bloquea la GUI) y aislar la lib StreamDeck del proceso GTK. Output JSON.
+_DETECT_PAYLOAD = r"""
+import json, sys
+try:
+    from StreamDeck.DeviceManager import DeviceManager
+except Exception as e:
+    print(json.dumps({"error": f"streamdeck lib missing: {e}", "decks": []}))
+    sys.exit(0)
+out = []
+try:
+    devs = DeviceManager().enumerate()
+except Exception as e:
+    print(json.dumps({"error": f"enumerate failed: {e}", "decks": []}))
+    sys.exit(0)
+for d in devs:
+    if not d.is_visual():
+        continue
+    info = {"type": d.deck_type(), "id": d.id(),
+            "serial": None, "firmware": None, "error": None}
+    try:
+        d.open()
+        info["serial"]   = d.get_serial_number()
+        info["firmware"] = d.get_firmware_version()
+    except Exception as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        try: d.close()
+        except Exception: pass
+    out.append(info)
+print(json.dumps({"error": None, "decks": out}))
+"""
 
 _PREVIEW_ROOT = Path("/tmp/streamdeb-preview")
 _DECK_JSON = _PREVIEW_ROOT / "deck.json"
@@ -39,23 +72,37 @@ def _read_streamdeb_deck() -> dict | None:
 
 
 def _enumerate_via_subprocess() -> tuple[list[dict], str | None]:
-    """Llama `bin/detect-decks`. Devuelve (decks, error_msg)."""
-    if not _DETECT_SCRIPT.exists():
-        return [], f"helper no encontrado: {_DETECT_SCRIPT}"
-    try:
-        r = subprocess.run([str(_DETECT_SCRIPT)],
-                            capture_output=True, text=True, timeout=5)
-    except subprocess.TimeoutExpired:
-        return [], "detección excedió 5 s (¿USB colgado?)"
-    except Exception as e:
-        return [], f"{type(e).__name__}: {e}"
-    if r.returncode != 0:
-        return [], f"helper rc={r.returncode}: {r.stderr.strip()[:200]}"
-    try:
-        data = json.loads(r.stdout)
-    except json.JSONDecodeError as e:
-        return [], f"helper output no es JSON: {e}"
-    return data.get("decks", []), data.get("error")
+    """Enumera decks vía subproceso Python (antes bin/detect-decks).
+    Devuelve (decks, error_msg). Prefiere el intérprete actual (system
+    python con la lib StreamDeck); si le falta la lib, prueba el venv."""
+    candidatos = [sys.executable, str(_REPO_ROOT / ".venv" / "bin" / "python")]
+    last_err = None
+    for py in candidatos:
+        if not py or not os.path.exists(py):
+            continue
+        try:
+            r = subprocess.run([py, "-c", _DETECT_PAYLOAD],
+                               capture_output=True, text=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            return [], "detección excedió 5 s (¿USB colgado?)"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            continue
+        if r.returncode != 0:
+            last_err = f"rc={r.returncode}: {r.stderr.strip()[:200]}"
+            continue
+        try:
+            data = json.loads(r.stdout)
+        except json.JSONDecodeError as e:
+            last_err = f"output no es JSON: {e}"
+            continue
+        # Si este intérprete no tiene la lib, prueba el siguiente candidato.
+        err = data.get("error") or ""
+        if err.startswith("streamdeck lib missing") and py != candidatos[-1]:
+            last_err = err
+            continue
+        return data.get("decks", []), data.get("error")
+    return [], last_err or "ningún intérprete pudo enumerar"
 
 
 def detect_decks() -> list[dict]:

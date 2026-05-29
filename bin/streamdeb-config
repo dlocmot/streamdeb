@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# Launcher para la GUI configurador. PyGObject (gi) vive en system python,
-# no en el .venv del servicio, así que usamos /usr/bin/python3.
-set -e
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO"
-exec /usr/bin/python3 -m streamdeb_config "$@"

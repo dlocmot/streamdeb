@@ -183,15 +183,15 @@ without needing the Pi:
 
 - Parallel service `streamdeb-kiosk.service` under
   `~/.config/systemd/user/` (versioned in `systemd/`).
-- Helper `bin/switch-profile.sh {main|kiosk}` performs the atomic swap:
-  it launches the `start` of the new service as a **transient unit**
-  (`systemd-run --user`) so that it survives the `stop` of the current
-  one (whose cgroup-kill takes everything down). Waits 1.5s before
-  starting so the USB deck is released.
+- The atomic swap is inlined in each app: it launches the `start` of the
+  new service as a **transient unit** (`systemd-run --user`) so that it
+  survives the `stop` of the current one (whose cgroup-kill takes
+  everything down). Waits 1.5s before starting so the USB deck is
+  released.
 - Button in CONF on each app:
   - main: key **15** "Kiosk profile" (col 7 row 1, below the gear).
-  - kiosk: key **11** "Main profile" (only shown if the helper exists,
-    so it is not rendered on the Pi).
+  - kiosk: key **11** "Main profile" (only shown when `streamdeb.service`
+    is installed, so it is not rendered on the Pi).
 - Both apps trap SIGTERM to close the deck cleanly inside `finally`.
 
 Set up the kiosk service on dinamo:
@@ -220,15 +220,16 @@ cp config/default.toml ~/.config/streamdeb/config.toml
 # edit and save — the deck refreshes within ~3 s
 ```
 
-A GTK4 GUI configurator (`bin/streamdeb-config`) mirrors the live
-deck output (per-tile, bidirectional clicks) and lets you edit
-labels, commands, icons and shortcuts. App-picker scans
-`*.desktop`; icon-picker reads the system theme.
+A GTK4 GUI configurator (`python3 -m streamdeb_config`, packaged as the
+`streamdeb-config` command in the .deb) mirrors the live deck output
+(per-tile, bidirectional clicks) and lets you edit labels, commands,
+icons and shortcuts. App-picker scans `*.desktop`; icon-picker reads
+the system theme.
 
 Run from the source tree:
 ```bash
 sudo apt install python3-gi gir1.2-gtk-4.0 python3-elgato-streamdeck
-./bin/streamdeb-config
+python3 -m streamdeb_config
 ```
 
 Build a system-wide `.deb` (lands in your applications menu under
@@ -341,7 +342,6 @@ streamdeb/
 ├── main.py                          # original scaffold (unused)
 ├── API.md                           # AWAhorro ESP32 API
 ├── requirements.txt                 # streamdeck, Pillow
-├── bin/switch-profile.sh            # main↔kiosk swap on dinamo
 ├── udev/50-streamdeck.rules         # USB access without root (plugdev)
 ├── systemd/awa-kiosk.service        # system service for the Pi
 ├── systemd/streamdeb-kiosk.service  # user kiosk service on dinamo

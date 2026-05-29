@@ -23,12 +23,11 @@ install -m 644 "$REPO/packaging/streamdeb-config.desktop" \
 install -m 644 "$REPO/packaging/icon.svg" \
                "$BUILD/usr/share/icons/hicolor/scalable/apps/streamdeb-config.svg"
 
-# Código
+# Código (la detección de decks está inline en streamdeb_config/wizard.py;
+# ya no se empaqueta bin/detect-decks).
 for d in core plugins streamdeb_config config fonts; do
     cp -r "$REPO/$d" "$BUILD/usr/lib/streamdeb/"
 done
-mkdir -p "$BUILD/usr/lib/streamdeb/bin"
-install -m 755 "$REPO/bin/detect-decks" "$BUILD/usr/lib/streamdeb/bin/"
 
 # Limpia caches
 find "$BUILD/usr/lib/streamdeb" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true

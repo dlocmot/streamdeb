@@ -109,6 +109,45 @@ TECLA_PING   = 23
 TECLA_NAV    = 30   # AWA: ir a CONF · CONF: volver a AWA
 TECLA_CERRAR = 31
 
+
+# --- Cambio de perfil main↔kiosko (antes bin/switch-profile.sh) ---
+# El "perfil Main" (dashboard_pro) sólo existe en dinamo, no en la Pi.
+# Heurística: ¿está instalado el servicio streamdeb.service?
+
+_perfil_main_cache = None  # None = sin calcular; el estado no cambia en sesión
+
+def _hay_perfil_main() -> bool:
+    """True si el servicio main (streamdeb.service) está instalado — sólo
+    en dinamo. En la Pi headless no existe y el botón Main se oculta.
+    Cacheado: se llama desde el render (cada frame) y el estado es estático."""
+    global _perfil_main_cache
+    if _perfil_main_cache is None:
+        try:
+            r = subprocess.run(
+                ["systemctl", "--user", "list-unit-files", "streamdeb.service",
+                 "--no-legend"], capture_output=True, text=True, timeout=3)
+            _perfil_main_cache = "streamdeb.service" in r.stdout
+        except Exception:
+            _perfil_main_cache = False
+    return _perfil_main_cache
+
+
+def _cambiar_a_main():
+    """Arranca streamdeb.service (tras 1.5s, en unit transient con cgroup
+    propio para sobrevivir al stop de este kiosko) y para streamdeb-kiosk."""
+    unit = f"streamdeb-switch-{int(time.time())}"
+    subprocess.Popen(
+        ["systemd-run", "--user", "--no-block", f"--unit={unit}",
+         "--description=Switch a streamdeb (main)",
+         "bash", "-c", "sleep 1.5 && systemctl --user start streamdeb.service"],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(
+        ["systemctl", "--user", "stop", "streamdeb-kiosk.service"],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 # Colores
 COL_MODO     = "#ffaa00"   # amarillo/ámbar — fuente de agua
 COL_PROG     = "#cc66ff"   # violeta — programas lavaplatos
@@ -456,13 +495,11 @@ def _accion_boton(deck, tecla):
             print(f"[CONF] tema_override={tema_override}", flush=True)
             forzar_redraw = True
         elif tecla == 11:   # Perfil Main — sólo aplica en dinamo, no-op en la Pi
-            print("[CONF] cambiando a perfil Main", flush=True)
-            switch = "/home/jfqp/Documents/GitHub/streamdeb/bin/switch-profile.sh"
-            if os.path.exists(switch):
-                subprocess.Popen([switch, "main"], start_new_session=True,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if _hay_perfil_main():
+                print("[CONF] cambiando a perfil Main", flush=True)
+                _cambiar_a_main()
             else:
-                print("[CONF] switch-profile.sh no encontrado (¿host Pi?) — ignoro", flush=True)
+                print("[CONF] sin perfil Main (¿host Pi?) — ignoro", flush=True)
         elif tecla == TECLA_CERRAR:
             try:
                 deck.set_brightness(0)
@@ -717,8 +754,8 @@ def render_pagina_config(deck, tam):
         TECLA_NAV:    dibujar_btn_seleccion(deck, tam, "Volver", "AWA", COL_AWA),
         TECLA_CERRAR: dibujar_boton_x(deck, tam),
     }
-    # Botón "Perfil Main" sólo cuando corremos en dinamo (existe el switch script)
-    if os.path.exists("/home/jfqp/Documents/GitHub/streamdeb/bin/switch-profile.sh"):
+    # Botón "Perfil Main" sólo cuando corremos en dinamo (existe el servicio main)
+    if _hay_perfil_main():
         imgs[11] = dibujar_btn_seleccion(deck, tam, "Perfil", "Main", "#ffaa00")
     return imgs
 
