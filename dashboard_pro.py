@@ -602,6 +602,7 @@ def _accion_boton(deck, tecla):
                     perfil_visual = 1
             _gear_cache.clear(); _app_cache.clear()
             _web_cache.clear(); _keys_cache.clear(); _vent_cache.clear()
+            _nav_cache.clear()  # los nav buttons dependen del perfil/tema
             _invalidar_render_cache()
             print(f"[CONFIG] perfil_visual={perfil_visual} tema_lcars={tema_lcars}", flush=True)
             forzar_redraw = True; _persist_save()
@@ -850,6 +851,9 @@ def _abrir_deck():
 
 # --- Renderizado por página ---
 
+_nav_cache = {}        # key → dict de 7 tiles nav (mismos PIL → finalize/dedup hit)
+_NAV_CACHE_MAX = 32
+
 def botones_navegacion(deck, tam):
     ahora = datetime.datetime.now()
     fecha = ahora.strftime("%d/%m/%y")
@@ -865,6 +869,15 @@ def botones_navegacion(deck, tam):
         cuenta_awa = "---"
     media_vol = f"{volumen_actual}%"
 
+    # Cache: la fila nav sólo cambia con la página activa, el minuto, el
+    # estado/cuenta AWA y el volumen. Reconstruirla cada frame de cada
+    # página era ~5ms desperdiciados; devolver los mismos PIL hace además
+    # que finalize (id-cache) y el dedup USB acierten.
+    key = (pagina_actual, tam, fecha, hora, estado_awa, cuenta_awa, media_vol)
+    cached = _nav_cache.get(key)
+    if cached is not None:
+        return cached
+
     p1 = dibujar_boton_nav(deck, tam, "SIS",   fecha, hora,
                            color="#ffaa00", activo=(pagina_actual == 1))
     p2 = dibujar_boton_nav(deck, tam, "AWA",   estado_awa, cuenta_awa,
@@ -879,7 +892,11 @@ def botones_navegacion(deck, tam):
     # CONF se entra con long-press ≥2s en SIS (no tiene nav button).
     # WEB se entra desde CTX cuando hay un browser activo (Firefox/Brave).
     # GROWATT (page 17) se entra desde SIS tecla 11 (widget_para_sistema).
-    return {0: p1, 1: p2, 2: p3, 3: p4, 4: p_ctx, 6: p_keys, 7: p_vent}
+    result = {0: p1, 1: p2, 2: p3, 3: p4, 4: p_ctx, 6: p_keys, 7: p_vent}
+    if len(_nav_cache) >= _NAV_CACHE_MAX:
+        _nav_cache.clear()
+    _nav_cache[key] = result
+    return result
 
 # CTX puede navegar a otras páginas (ej. WEB desde Firefox)
 def _ctx_navigate(page_id):

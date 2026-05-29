@@ -19,19 +19,34 @@ max_visto_up   = 1024.0
 top_procs = {"cpu": [], "mem": []}
 _procs_lock = threading.Lock()
 
+# Sensores térmicos cacheados (poblado por tareas_fondo cada 6s). Leer
+# sensors_temperatures() costaba ~9ms en cada frame de SIS; el térmico
+# cambia lento, así que basta refrescarlo en background.
+_sensores = {}
+
+
+def _refrescar_sensores():
+    global _sensores
+    try:
+        _sensores = psutil.sensors_temperatures()
+    except Exception:
+        _sensores = {}
+
 
 def tareas_fondo():
-    """Polling cada 3s de top 5 procesos por CPU y por MEM.
+    """Polling cada 6s de top 5 procesos (CPU/MEM) + sensores térmicos.
     cpu_percent(None) requiere priming: la primera pasada inicializa
     contadores y descarta resultados; las siguientes son válidas."""
     # Priming
     for p in psutil.process_iter():
         try: p.cpu_percent(None)
         except Exception: pass
+    _refrescar_sensores()  # prime para que el primer render ya tenga temps
     time.sleep(1)
     total_ram = psutil.virtual_memory().total or 1
     while True:
         try:
+            _refrescar_sensores()
             snap = []
             for p in psutil.process_iter(["name"]):
                 try:
@@ -56,13 +71,10 @@ def tareas_fondo():
 
 
 def _leer_sensores():
-    """Lectura única de sensores térmicos; {} si no hay/falla.
-    sensors_temperatures() lee sysfs en cada llamada — leer una vez por
-    render y pasar el dict a los helpers evita 2-3 lecturas redundantes."""
-    try:
-        return psutil.sensors_temperatures()
-    except Exception:
-        return {}
+    """Devuelve el snapshot de sensores cacheado por tareas_fondo (cada 6s).
+    Evita leer sysfs (~9ms) en cada render. El rebind de _sensores es
+    atómico, así que el render ve siempre un dict completo."""
+    return _sensores
 
 
 def _temps_cores(s=None):
