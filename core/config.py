@@ -37,4 +37,4 @@ LONGPRESS_S            = 2.0      # umbral pulsación larga
 
 # Wallpaper
 WALLPAPER_BRILLO     = 0.4        # 1.0 = original · 0.4 = 40% (oscurecido)
-WALLPAPER_SATURACION = 1.25       # 1.0 = original · 1.25 = +25%
+WALLPAPER_SATURACION = 1.375      # 1.0 = original · 1.375 = +37.5% (10% más vivo que el 1.25 previo)
