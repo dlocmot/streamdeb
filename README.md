@@ -1,7 +1,11 @@
-# streamdeb — Stream Deck dashboards
+# streamdeb — Stream Deck dashboards for Linux
 
-Two independent Python applications for the Elgato Stream Deck XL,
-running on Debian:
+A Python implementation of live dashboards for the Elgato Stream Deck XL
+on Linux (Debian), built around a **plugin architecture** (`core/` +
+`plugins/`): system monitor, app launchers, context-aware shortcuts,
+Docker control, weather, a GUI configurator, LCARS themes, and more —
+each feature is a self-contained plugin. Among them, AWAhorro
+water-valve control (ESP32 over HTTP) is just one plugin.
 
 ![streamdeb-config — APP page editing](screenshots/01-apps.png)
 
@@ -9,7 +13,7 @@ The GUI configurator (`streamdeb-config`) mirrors the deck output
 tile-by-tile in real time. The first screenshot above is the **APP**
 launcher page (editable). Below: the **SIS** view-only page reflecting
 the dashboard's live widgets — clock, CPU cores, temperature, RAM,
-weather, pomodoro, network, docker — exactly as the physical deck
+weather, network, docker — exactly as the physical deck
 renders them.
 
 ![streamdeb-config — SIS live mirror](screenshots/02-sis-live-mirror.png)
@@ -28,13 +32,18 @@ Wallpapers live in `~/Pictures/wallpapers/` — drop any `.jpg`/`.png`
 there and the deck auto-detects them (no restart). Rotate with the
 wallpaper key in CONF; long-press turns it off.
 
+The main application is the general-purpose dashboard; the kiosk is an
+optional, stripped-down variant that runs only the AWAhorro plugin on a
+headless Pi.
+
 | App                  | Host                          | Service                | Purpose                                  |
 |----------------------|-------------------------------|------------------------|------------------------------------------|
-| `dashboard_pro.py`   | PC `dinamo` (Debian)          | `streamdeb` (--user)   | General-purpose dashboard (5 pages)      |
-| `awa_kiosk.py`       | Raspberry Pi 3 (headless)     | `awa-kiosk` (system)   | Dedicated AWAhorro control panel         |
+| `dashboard_pro.py`   | PC `dinamo` (Debian)          | `streamdeb` (--user)   | General-purpose dashboard (multi-page)   |
+| `awa_kiosk.py`       | Raspberry Pi 3 (headless)     | `awa-kiosk` (system)   | Optional dedicated AWAhorro-plugin panel |
 
-Both talk to the **AWAhorro Base** ESP32 at `192.168.18.10` (water-valve
-controller). API documented in [`API.md`](API.md).
+The AWAhorro plugin (`plugins/awa.py`, page 2) talks to an **AWAhorro
+Base** ESP32 over HTTP (water-valve controller); it's one integration
+among many and entirely optional. API documented in [`API.md`](API.md).
 
 > `main.py` is the original repository scaffold and is not used.
 
