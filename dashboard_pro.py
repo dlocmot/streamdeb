@@ -851,6 +851,24 @@ def _abrir_deck():
         return None
 
 
+def _reconectar_deck(viejo):
+    """Cierra el deck muerto y reabre el re-enumerado. Bloquea (reintenta cada
+    2s) hasta lograrlo. Usado tras detectar una desconexión USB (suspensión,
+    glitch de energía, cable) — el deck reaparece con un path nuevo."""
+    try: viejo.close()
+    except Exception: pass
+    nuevo = None
+    while nuevo is None:
+        nuevo = _abrir_deck()
+        if nuevo is None:
+            print("[WAIT] esperando deck...", flush=True)
+            time.sleep(2)
+    nuevo.set_key_callback(boton_presionado)
+    _invalidar_render_cache()
+    print("[OK] reconectado", flush=True)
+    return nuevo
+
+
 # --- Renderizado por página ---
 
 _nav_cache = {}        # key → dict de 7 tiles nav (mismos PIL → finalize/dedup hit)
@@ -1087,6 +1105,23 @@ def iniciar_dashboard():
         while True:
             ahora = time.time()
 
+            # Health-check del USB al tope del loop: detecta caída/re-enumeración
+            # del device (suspensión, glitch de energía, cable). Los writes a un
+            # handle muerto NO lanzan excepción → sin esto la pantalla queda
+            # congelada para siempre. Va antes del dim porque un deck muerto
+            # tampoco registra el press para despertar.
+            try:
+                _vivo = deck.connected()
+            except Exception:
+                _vivo = False
+            if not _vivo:
+                print("[DECK] desconectado (USB re-enumerado) — reconectando...", flush=True)
+                deck = _reconectar_deck(deck)
+                tam = deck.key_image_format()['size']
+                pagina_anterior = None
+                modo_dim_activo = False
+                continue
+
             if _despertar:
                 try:
                     deck.set_brightness(brillo_actual)
@@ -1158,20 +1193,9 @@ def iniciar_dashboard():
 
             except Exception as e:
                 print(f"[ERR] {e} — intentando reconectar...", flush=True)
-                try: deck.close()
-                except: pass
-                deck = None
-                time.sleep(2)
-                while deck is None:
-                    deck = _abrir_deck()
-                    if deck is None:
-                        print("[WAIT] esperando deck...", flush=True)
-                        time.sleep(2)
+                deck = _reconectar_deck(deck)
                 tam = deck.key_image_format()['size']
-                deck.set_key_callback(boton_presionado)
                 pagina_anterior = None
-                _invalidar_render_cache()
-                print("[OK] reconectado", flush=True)
 
             # En vez de sleep fijo: wait hasta N s O hasta que algo dispare
             # el event (press físico, inject, hooks de ctx/etc). Un press
