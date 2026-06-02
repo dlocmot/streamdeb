@@ -18,6 +18,11 @@ renders them.
 
 ![streamdeb-config — SIS live mirror](screenshots/02-sis-live-mirror.png)
 
+The **MEDIA** page — another general-purpose plugin — mirrors volume and
+playback controls (VOL±, play/pause, mute) alongside the shared nav row:
+
+![streamdeb-config — MEDIA live mirror](screenshots/04-media-live-mirror.png)
+
 ### Visual profiles and themes
 
 Three render profiles (toggleable from CONF). Profile 1 paints
