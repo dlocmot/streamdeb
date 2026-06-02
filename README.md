@@ -50,6 +50,12 @@ The AWAhorro plugin (`plugins/awa.py`, page 2) talks to an **AWAhorro
 Base** ESP32 over HTTP (water-valve controller); it's one integration
 among many and entirely optional. API documented in [`API.md`](API.md).
 
+![streamdeb-config — AWA plugin live mirror](screenshots/03-awa-live-mirror.png)
+
+Its page shows live valve status (state, account, mode, Wi-Fi, tank,
+admin lock) and timed-open actions (1–5 min, 15/30 min, 1/2 h) plus a
+**CERRAR** (close) button — all driven by the ESP32 over HTTP.
+
 > `main.py` is the original repository scaffold and is not used.
 
 ---
