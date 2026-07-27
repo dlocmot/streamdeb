@@ -3,9 +3,10 @@
 A Python implementation of live dashboards for the Elgato Stream Deck XL
 on Linux (Debian), built around a **plugin architecture** (`core/` +
 `plugins/`): system monitor, app launchers, context-aware shortcuts,
-Docker control, weather, a GUI configurator, LCARS themes, and more —
-each feature is a self-contained plugin. Among them, AWAhorro
-water-valve control (ESP32 over HTTP) is just one plugin.
+Docker control, weather, solar-inverter telemetry, a foot pedal, a GUI
+configurator, LCARS themes, and more — each feature is a self-contained
+plugin. Among them, AWAhorro water-valve control (ESP32 over HTTP) is
+just one plugin.
 
 ![streamdeb-config — APP page editing](screenshots/01-apps.png)
 
@@ -25,9 +26,14 @@ playback controls (VOL±, play/pause, mute) alongside the shared nav row:
 
 ### Visual profiles and themes
 
-Three render profiles (toggleable from CONF). Profile 1 paints
-coloured frames around every tile; profile 2 (default) is the clean
-look above; profile 3 is LCARS chrome with thirteen sub-themes.
+Three render profiles, rotated from the **Perfil V** key in CONF.
+Profile 1 paints coloured frames around every tile; profile 2 is the
+clean look above; profile 3 is themed chrome with **thirteen** sub-themes
+that live in `plugins/themes/` (`classic`, `voyager`, `nemesis`,
+`cardassia`, `lowerdecks`, `cyberpunk`, `synthwave`, `tron`, `matrix`,
+`halloween`, `minimal_dark`, `twitch_rgb`, `terminal_ide`). Each theme
+declares its own chrome, so a non-Trek palette doesn't get LCARS elbows.
+The Perfil V key walks `1 → 2 → 3·<theme 1> → 3·<theme 2> → … → back to 1`.
 
 | Profile 1 + galaxy wallpaper | LCARS · voyager | LCARS · matrix | LCARS · tron |
 | --- | --- | --- | --- |
@@ -52,7 +58,7 @@ among many and entirely optional. API documented in [`API.md`](API.md).
 
 ![streamdeb-config — AWA plugin live mirror](screenshots/03-awa-live-mirror.png)
 
-Its page shows live valve status (state, account, mode, Wi-Fi, tank,
+Its page shows live valve status (state, countdown, mode, Wi-Fi, tank,
 admin lock) and timed-open actions (1–5 min, 15/30 min, 1/2 h) plus a
 **CERRAR** (close) button — all driven by the ESP32 over HTTP.
 
@@ -66,60 +72,96 @@ Stream Deck XL (32 keys · 4 rows × 8 columns · 96×96 px). Runs as a
 `systemd --user` service started with the graphical session of user
 `jfqp`.
 
-### Layout — 5 pages + shared nav
+### Navigation row (row 0, visible on every page)
 
-Row 0 (visible on every page):
+| Key | Button | Goes to                                                  |
+|-----|--------|----------------------------------------------------------|
+| 0   | SIS    | Page 1 — system. **Long-press ≥2 s → CONF (page 5)**      |
+| 1   | AWA    | Page 2 — AWAhorro control                                |
+| 2   | MEDIA  | Page 3 — multimedia                                      |
+| 3   | APP    | Page 4 — application launcher                            |
+| 4   | CTX    | Page 12 — context-aware shortcuts                        |
+| 5   | —      | free                                                     |
+| 6   | KEYS   | Page 7 — keyboard shortcuts                              |
+| 7   | WIN    | Page 8 — window tiling                                   |
 
-| Key | Button | Function                                                    |
-|-----|--------|-------------------------------------------------------------|
-| 0   | SIS    | Page 1 — system                                             |
-| 1   | AWA    | Page 2 — AWAhorro control                                   |
-| 2   | MEDIA  | Page 3 — multimedia                                         |
-| 3   | APP    | Page 4 — application launcher                               |
-| 7   | CONF   | Page 5 — configuration (gear icon)                          |
+CONF has no nav button of its own: it is the long-press of key 0. Two
+more pages are reached indirectly — **WEB** (6) from CTX when a browser
+is focused, and **GROWATT** (17) from the PV widget on SIS.
 
-> The old red X (power off / manual dim) no longer lives in row 0; it
-> now sits inside the CONF page (key 31).
+### All pages
+
+| id | Page    | Entry point                    |
+|----|---------|--------------------------------|
+| 1  | SIS     | nav key 0                      |
+| 2  | AWA     | nav key 1                      |
+| 3  | MEDIA   | nav key 2                      |
+| 4  | APP     | nav key 3                      |
+| 5  | CONF    | long-press nav key 0           |
+| 6  | WEB     | from CTX (browser focused)     |
+| 7  | KEYS    | nav key 6                      |
+| 8  | WIN     | nav key 7                      |
+| 9  | IDLE    | inactivity fallback (optional) |
+| 10 | DOCKER  | SIS key 26                     |
+| 11 | WEATHER | SIS key 19                     |
+| 12 | CTX     | nav key 4                      |
+| 13 | CORES   | SIS key 9                      |
+| 14 | PINGS   | SIS key 25                     |
+| 15 | NET     | SIS key 24                     |
+| 16 | TEMPS   | SIS key 10                     |
+| 17 | GROWATT | SIS key 11                     |
 
 #### SIS page (default)
 
 ```
-Row 1:  Uptime  Cores   Temp    .      .    .    .    .
-Row 2:  RAM     SWAP    ROOT   Weather .    .    .    .
-Row 3:  Net     Pings   Docker  POMO   .    .    .    .
+Row 1:  Uptime  Cores   Temp    PV      .      .      .      .
+Row 2:  RAM     SWAP    ROOT    Weather .   IZQ L  CEN x2  DER L
+Row 3:  Net     Pings   Docker  GridW   .    IZQ    REST    DER
 ```
 
 - **Cores** (key 9): title `Cores N%` (total CPU) + 4 vertical bars per
   core. Tap → CORES subpage (id 13) with per-core detail (C1–C4), top 5
   CPU processes and top 5 memory (GB).
 - **Temp** (key 10): title `Temp N°` (core average) + 4 temperature
-  bars. Bar maps [65..105°C]→0..100% (calibrated for a fanless Celeron
+  bars. Bar maps [65..105 °C]→0..100 % (calibrated for a fanless Celeron
   J4105). Colors: ≤82 green, 82–92 yellow, 92–100 amber, >100 red.
   Tap → TEMPS subpage (id 16) with Package + cores + other sensors
-  (acpitz, wifi).
+  (acpitz, wifi) + fans.
+- **PV** (key 11): 4 auto-scaled bars from the Growatt plugin — PV,
+  battery discharge, grid import, house load, with battery charge stacked
+  on top of the load bar. Tap → GROWATT page (id 17).
+- **Weather** (key 19): WMO icon + current temp + min/max. Tap →
+  WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip.
 - **Net** (key 24): 2 D/U bars scaled to the observed peak. Tap → NET
   subpage (id 15) with current DOWN/UP + peak, total RX/TX, packet
   counts and errors/drops.
 - **Pings** (key 25): 3 bars (GW/CF/G) colored by relative latency.
   Tap → PINGS subpage (id 14) with per-target detail (current / avg /
   max·min) + public and local IPs.
-- **Weather** (key 19): WMO icon + current temp + min/max. Tap →
-  WEATHER page (id 11) with banner + 24h meteogram + 12h strip.
-- **POMO** (key 27): 25/5 pomodoro. Short tap advances state, long-press
-  ≥2s resets.
 - **Docker** (key 26): running/total. Tap → DOCKER page (id 10).
+- **GridW** (key 27): health of [grid-watch](https://github.com/dlocmot/grid-watch),
+  the companion service that alerts when the public grid fails. Read over SSH
+  every 5 min. Green when it is watching and the grid is up, red during an
+  outage, amber when it stops responding — because a dead watchdog and a quiet
+  one look identical from your phone.
+- **Pedal tiles** (keys 21/22/23 and 29/30/31): read-only indicators for
+  the Stream Deck Pedal — see [Foot pedal](#foot-pedal) below.
 
 #### AWA page
 
 ```
-Row 1: Status  Count  Mode  Open   WiFi  Tank  User    Admin
-Row 2: 1MIN    2MIN   3MIN  4MIN   5MIN   .     .      Ping API
-Row 3: 15MIN   30MIN  1HOUR 2HOURS  .     .     .      CLOSE
+Row 1: Status  Count  Mode   Opens  WiFi  Tank  User   Admin
+Row 2: 1MIN    2MIN   3MIN   4MIN   5MIN   .    Ping    .
+Row 3: 15MIN   30MIN  1HOUR  2HOURS  .     .     .     CLOSE
 ```
 
-- Status: green background if Open · red outline if Closed · gray if OFFLINE.
-- Time buttons: **glass-emptying** effect (cyan that decreases) on the
-  button whose duration matches `initial_seconds` from the API.
+- Status (key 8): green background if Open · red outline if Closed ·
+  gray if OFFLINE.
+- Count (key 9) is the live countdown; Opens (key 11) is the open counter
+  since the ESP32 booted.
+- Time buttons (16–20, 24–27): **glass-emptying** effect (cyan that
+  decreases) on the button whose duration matches `initial_seconds` from
+  the API.
 - `CLOSE` (key 31): red, sends `{"action":"close"}`.
 
 #### MEDIA page
@@ -130,52 +172,123 @@ Row 2:   .   .   .   .   .   .  PLAY  MUTE
 Row 3:   .   .   .   .   .   .   .   VOL-
 ```
 
-- VOL+/MUTE/VOL− stacked in the last column (15, 23, 31), PLAY on key 22.
+- VOL+ (15) / MUTE (23) / VOL− (31) stacked in the last column, PLAY on key 22.
 - Commands: `pactl set-sink-volume`, `pactl set-sink-mute`, `playerctl play-pause`.
 
-#### APP page — launcher
+#### APP · WEB · KEYS · WIN — defined in TOML
 
-System theme PNG icons (hicolor / mate / gnome). Current apps in
-`APPS_PAGINA` (`dashboard_pro.py:93`):
+These four pages hold **no button definitions in Python**. They are read
+from a TOML file (see [Declarative config](#declarative-config--gui)) and
+hot-reloaded within ~3 s of saving:
 
-- Dev: Term, Arduino, GitHub Desktop
-- Web: Brave, Firefox (firejail)
-- 3D: PrusaSlicer
-- Media: OBS, VLC
-- Sec: Burp Suite
-- Net: Winbox (wine)
-- Util: AnyDesk, SysMon, VirtualBox
+- **APP** — launchers with system-theme PNG icons (hicolor / mate /
+  gnome). Shipped defaults: Term, Arduino IDE, GitHub Desktop, Brave,
+  Firefox (firejail), PrusaSlicer, OBS, VLC, Burp Suite, Winbox (wine),
+  AnyDesk, RustDesk, Pluma, Calc, SysMon, VirtualBox. Every app is
+  launched through `systemd-run --user --scope`, so it lives outside the
+  service's cgroup and survives a dashboard restart.
+- **WEB** — URL launchers with auto-fetched favicons (plus per-URL icon
+  overrides). Entered from CTX when a browser has focus.
+- **KEYS** — keyboard shortcuts, either `combo` (`ctrl+shift+c`,
+  `print_screen`, `super+l`, …) or `type` (types a string).
+- **WIN** — window tiling via `wmctrl`, with geometries precomputed for a
+  3840×1200 desktop.
+
+#### CTX page
+
+Polls `xprop` every 0.7 s for the focused window's `WM_CLASS` and shows
+the shortcuts registered for that app (currently `mate-terminal` and
+Firefox, under its several instance names). Shortcuts may be key combos
+or `@page:N` jumps — that is how a focused browser routes you to WEB.
+The same signal reconfigures the foot pedal bindings.
+
+#### GROWATT page
+
+Solar inverter dashboard read from `server.growatt.com` via the
+`growattServer` library. Left 3×3 block reproduces the vendor's energy
+flow (solar on top, grid left, load right, battery below, inverter in the
+centre); columns 3–7 hold five metric cards (PV output, battery
+discharge, battery charge, grid import, consumption) plus status,
+battery SOC and grid voltage/frequency.
+
+Polling is every 5 min with exponential backoff up to 30 min — the cloud
+only receives a push from the dongle every ~5 min, so polling faster just
+burns quota. Polling **pauses while the deck is dimmed** and fires
+immediately on wake. Credentials go in
+`~/.config/streamdeb/growatt.toml` (preferred) or
+`plugins/growatt/credentials.toml` — both gitignored; see
+`credentials.toml.example`.
 
 #### CONF page — live configuration
 
-Settings editable without restarting the service:
+Reached with a long-press on key 0. Everything is editable without
+restarting the service, and persisted to `~/.config/streamdeb/state.json`:
 
-- **Brightness** (col 0): +, current %, − (step 10%, min 10, max 100).
+```
+Row 1:  Bright+  Fallback+  Dim+  Monitor+  Wallpaper  Banner  Perfil V  Kiosk
+Row 2:  Bright%  Fallback   Dim   Monitor      .         .        .        .
+Row 3:  Bright−  Fallback−  Dim−  Monitor−     .         .        .        X
+```
+
+- **Brightness** (col 0): step 10 %, range 10–100.
 - **SIS fallback** (col 1): seconds without interaction before returning
-  to SIS. Range 60s – 30min, step 1 min.
-- **Auto-dim** (col 2): seconds without interaction before the screen
-  dims. Range 60s – 2h, step 1 min.
-- **Monitor brightness** (col 3): xrandr gamma brightness for the
-  external display. +, current %, −.
-- **Kiosk profile** (key 15, below the gear): switches to the
-  `streamdeb-kiosk` service (see Profile switch below).
-- **Power-off X** (key 31, manual dim).
+  to SIS. Range 60 s – 30 min, step 1 min.
+- **Auto-dim** (col 2): seconds without interaction before the deck dims.
+  Range 60 s – 2 h, step 1 min.
+- **Monitor brightness** (col 3): `xrandr --brightness` on the active
+  output (auto-detected, override with `STREAMDEB_MONITOR_OUTPUT`).
+- **Wallpaper** (key 12): short press rotates, long-press ≥2 s turns it off.
+- **Banner** (key 13): if ON, the inactivity fallback goes to the IDLE
+  banner page (9) instead of SIS.
+- **Perfil V** (key 14): rotates render profile and theme.
+- **Kiosk profile** (key 15): switches this deck to `awa_kiosk.py`
+  (see [Profile switch](#profile-switch-main--kiosk-on-dinamo)).
+- **Power-off X** (key 31): manual dim.
+
+#### Foot pedal
+
+An Elgato Stream Deck Pedal (3 switches, no screen) is picked up as an
+auxiliary input by `plugins/pedal.py`. It has no page of its own — its
+six SIS tiles are live indicators, not buttons:
+
+| Slot            | SIS tile | Gesture                        |
+|-----------------|----------|--------------------------------|
+| `tap_izq`       | 29       | short tap, left pedal          |
+| `tap_der`       | 31       | short tap, right pedal         |
+| `hold_izq`      | 21       | hold ≥1.2 s, left pedal        |
+| `hold_der`      | 23       | hold ≥1.0 s, right pedal       |
+| `double_cen`    | 22       | double-tap, centre pedal       |
+| (REST)          | 30       | centre pedal at rest — ignored |
+
+The centre pedal is treated as a footrest (Elgato ships stoppers for it),
+so only a deliberate double-tap registers there. Bindings are
+context-aware: `plugins/pedal_apps/<wm_class>.py` maps the focused app to
+the five slots, and CTX reconfigures them on the fly. Bundled:
+`default`, `firefox`, `mate-terminal`, `vlc`, `code`.
 
 ### Cross-cutting behaviors
 
-- **Auto-fallback to SIS** and **auto-dim** using the values configured
-  in CONF (no more hardcoded constants).
-- **Reconnect**: if the deck disconnects, it retries every 2 s and
-  restores state on reconnect.
-- **Time-based theme**: light 05:30–22:00, dark otherwise (override
-  available from CONF).
+- **Auto-fallback** to SIS (or the IDLE banner) and **auto-dim**, both
+  using the values configured in CONF. WEB, KEYS, IDLE and GROWATT are
+  excluded from the fallback.
+- **USB recovery, two layers**: the main loop checks `deck.connected()`
+  on every iteration and transparently reopens the device when it
+  re-enumerates (suspend, power glitch, cable). A system unit
+  (`systemd/streamdeb-resume.service`) additionally restarts the service
+  after suspend — writes to a stale handle do *not* raise, so without
+  these the screen would freeze silently.
+- **Render caching**: panels are memoized by content, the nav row is
+  cached, encoded tiles are cached by identity, and identical bytes are
+  never re-sent over USB. Live pages (metrics, polling, clock) repaint
+  every second; static pages only on demand. Any key press wakes the loop
+  immediately.
 
 ### Setup
 
 ```bash
 sudo apt install python3-venv libhidapi-hidraw0 libhidapi-libusb0
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt psutil pynput
+.venv/bin/pip install -r requirements.txt
 
 sudo cp udev/50-streamdeck.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
@@ -186,13 +299,23 @@ systemctl --user enable --now streamdeb.service
 
 # optional: keep it running without a graphical session
 sudo loginctl enable-linger jfqp
+
+# optional: recover automatically after suspend
+sudo bash systemd/install-resume-hook.sh
 ```
+
+Useful environment variables (set them in the unit):
+`STREAMDEB_DECK_SERIAL` (pin to one deck when several are plugged in),
+`STREAMDEB_CONFIG`, `STREAMDEB_JPEG_QUALITY`, `STREAMDEB_LIVE_PREVIEW`,
+`STREAMDEB_MONITOR_OUTPUT`, `STREAMDEB_POLL_HZ`.
+`python3 dashboard_pro.py --dummy` renders to a PNG mosaic in
+`/tmp/streamdeb-preview/deck.png` with no hardware attached.
 
 ### Operation
 
 ```bash
 systemctl --user status  streamdeb
-systemctl --user restart streamdeb       # after editing dashboard_pro.py
+systemctl --user restart streamdeb       # after editing the code
 journalctl --user -u streamdeb -f
 ```
 
@@ -201,29 +324,25 @@ journalctl --user -u streamdeb -f
 On dinamo the deck can run `awa_kiosk.py` as a temporary profile
 without needing the Pi:
 
-- Parallel service `streamdeb-kiosk.service` under
-  `~/.config/systemd/user/` (versioned in `systemd/`).
-- The atomic swap is inlined in each app: it launches the `start` of the
-  new service as a **transient unit** (`systemd-run --user`) so that it
-  survives the `stop` of the current one (whose cgroup-kill takes
-  everything down). Waits 1.5s before starting so the USB deck is
-  released.
 - Button in CONF on each app:
-  - main: key **15** "Kiosk profile" (col 7 row 1, below the gear).
-  - kiosk: key **11** "Main profile" (only shown when `streamdeb.service`
-    is installed, so it is not rendered on the Pi).
+  - main: key **15** "Perfil Kiosko".
+  - kiosk: key **11** "Perfil Main" (only rendered when
+    `streamdeb.service` is installed, so it never shows on the Pi).
+- The atomic swap is inlined in each app: it starts the incoming app as a
+  **transient unit** (`systemd-run --user --no-block`) so it survives the
+  `stop` of the current one, whose cgroup-kill takes everything with it.
+  It waits 1.5 s before starting so the USB deck is released.
 - Both apps trap SIGTERM to close the deck cleanly inside `finally`.
 
-Set up the kiosk service on dinamo:
+Set up the parallel kiosk unit on dinamo:
 ```bash
 cp systemd/streamdeb-kiosk.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-# no `enable` — it is only launched through the button
 ```
 
-### Declarative config + GUI (work in progress)
+### Declarative config + GUI
 
-The four user-editable pages — **APP**, **WEB**, **KEYS**, **VENT** — read
+The four user-editable pages — **APP**, **WEB**, **KEYS**, **WIN** — read
 their button definitions from a TOML file:
 
 1. `$STREAMDEB_CONFIG` if set,
@@ -271,6 +390,8 @@ the deck is the only interface. Dedicated to AWAhorro control.
 - OS: Raspberry Pi OS Lite 64-bit (Debian 13 trixie).
 - Hostname: `awa`. User: `jfqp` (in the `plugdev` group).
 - **System** service (not user): `/etc/systemd/system/awa-kiosk.service`.
+  The shipped unit uses `User=streamdeb`; adjust it to your own user
+  before installing.
 - Code at `/opt/streamdeb/`, venv at `/opt/streamdeb/.venv/`.
 
 ### Layout (single page + CONF)
@@ -293,11 +414,15 @@ profile). It does not appear on the Pi.
 
 **Behaviors:**
 
-- **Brightness** and **Dim** work in both themes (light/dark).
-- **Auto-redim 2s in dark**: after pressing an opening button or CLOSE
-  while in the dark theme, the deck dims to 0 after 2s (silent kiosk
+- **Time-based theme**: light 05:30–22:00 America/Lima, dark otherwise,
+  overridable from CONF or pinned dark with `STREAMDEB_FORCE_DARK=1`.
+  (This is a kiosk-only feature; the main dashboard uses render profiles
+  instead.)
+- **Brightness** and **Dim** work in both themes.
+- **Auto-redim 2 s in dark**: after pressing an opening button or CLOSE
+  while in the dark theme, the deck dims to 0 after 2 s (silent kiosk
   at night). Any touch wakes it up.
-- **Deck ping while dimmed**: every 1s a `set_brightness(0)` ping
+- **Deck ping while dimmed**: every 1 s a `set_brightness(0)` ping
   detects USB drop-outs that would otherwise go unnoticed.
 - **CLOSE drained**: in light theme, outline only when already closed;
   solid red when an opening is active. In dark theme, faint gray when
@@ -306,10 +431,12 @@ profile). It does not appear on the Pi.
 ### Configuration (env vars in the .service)
 
 ```
-STREAMDEB_API_HOST   (default http://192.168.18.10)
-STREAMDEB_API_USER   (default Kiosko)
-STREAMDEB_BRILLO     (default 75)
-STREAMDEB_DIM        (default 1800)
+STREAMDEB_API_HOST     (default http://192.168.18.10)
+STREAMDEB_API_USER     (default Kiosko)
+STREAMDEB_BRILLO       (default 75)
+STREAMDEB_DIM          (default 1800)
+STREAMDEB_DECK_SERIAL  (pin to one deck)
+STREAMDEB_FORCE_DARK   (1 = always dark theme)
 ```
 
 ### Hardware notice
@@ -357,15 +484,33 @@ ssh jfqp@<pi> 'sudo systemctl restart awa-kiosk'
 
 ```
 streamdeb/
-├── dashboard_pro.py                 # PC dinamo app (5 pages)
-├── awa_kiosk.py                     # kiosk app (Pi and dinamo profile)
-├── main.py                          # original scaffold (unused)
-├── API.md                           # AWAhorro ESP32 API
-├── requirements.txt                 # streamdeck, Pillow
-├── udev/50-streamdeck.rules         # USB access without root (plugdev)
-├── systemd/awa-kiosk.service        # system service for the Pi
-├── systemd/streamdeb-kiosk.service  # user kiosk service on dinamo
-└── .venv/                           # local virtualenv (dinamo only)
+├── dashboard_pro.py            # PC dashboard — orchestration, state, main loop
+├── awa_kiosk.py                # kiosk app (Pi, and kiosk profile on dinamo)
+├── main.py                     # original scaffold (unused)
+├── core/                       # reusable Stream Deck infrastructure
+│   ├── config.py               #   constants and env-var overrides
+│   ├── helpers.py              #   session env, subprocess, app launching, fonts
+│   ├── iconos.py               #   icon lookup, favicons, SVG→PNG
+│   ├── keyboard.py             #   combo parsing and injection (pynput)
+│   ├── widgets.py              #   tile drawing primitives + panel memoization
+│   ├── render.py               #   RGBA → native JPEG, caches, GUI preview dump
+│   ├── wallpaper.py            #   wallpaper tiling, brightness, auto-detect
+│   └── persistence.py          #   atomic load/save of state.json
+├── plugins/                    # one self-contained module per feature
+│   ├── sistema.py awa.py media.py apps.py conf.py web.py keys.py vent.py
+│   ├── banner.py docker.py clima.py contexto.py userconfig.py pedal.py
+│   ├── growatt/                #   solar inverter (cloud API)
+│   ├── pedal_apps/             #   per-app pedal bindings
+│   └── themes/                 #   13 visual themes + shared chrome helpers
+├── streamdeb_config/           # GTK4 GUI configurator
+├── config/default.toml         # declarative APP/WEB/KEYS/WIN definitions
+├── packaging/                  # .deb build (build.sh, control, .desktop, icon)
+├── systemd/                    # kiosk units + resume hook + installer
+├── udev/50-streamdeck.rules    # USB access without root (plugdev)
+├── fonts/                      # 12 open-licensed TTFs used by the themes
+├── screenshots/                # images used in this README
+├── API.md                      # AWAhorro ESP32 HTTP API
+└── requirements.txt            # streamdeck, Pillow, psutil, pynput, cairosvg, growattServer
 ```
 
 ## License
