@@ -101,7 +101,6 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 | 6  | WEB     | from CTX (browser focused)     |
 | 7  | KEYS    | nav key 6                      |
 | 8  | WIN     | nav key 7                      |
-| 9  | IDLE    | inactivity fallback (optional) |
 | 10 | DOCKER  | SIS key 26                     |
 | 11 | WEATHER | SIS key 19                     |
 | 12 | CTX     | nav key 4                      |
@@ -225,21 +224,20 @@ Reached with a long-press on key 0. Everything is editable without
 restarting the service, and persisted to `~/.config/streamdeb/state.json`:
 
 ```
-Row 1:  Bright+  Fallback+  Dim+  Monitor+  Wallpaper  Banner  Perfil V  Kiosk
-Row 2:  Bright%  Fallback   Dim   Monitor      .         .        .        .
-Row 3:  Bright−  Fallback−  Dim−  Monitor−     .         .        .        X
+Row 1:  Bright+  Fallback+  Dim 30m  Monitor+  Wallpaper  .  Perfil V  Kiosk
+Row 2:  Bright%  Fallback   Dim 1h   Monitor      .       .     .        .
+Row 3:  Bright−  Fallback−  Dim Fijo Monitor−     .       .     .        X
 ```
 
 - **Brightness** (col 0): step 10 %, range 10–100.
 - **SIS fallback** (col 1): seconds without interaction before returning
   to SIS. Range 60 s – 30 min, step 1 min.
-- **Auto-dim** (col 2): seconds without interaction before the deck dims.
-  Range 60 s – 2 h, step 1 min.
+- **Auto-dim** (col 2): three fixed choices, one per key — **30m** (10),
+  **1h** (18) and **Fijo** (26), the active one highlighted. *Fijo* disables
+  the automatic dim entirely; the manual power-off X still works.
 - **Monitor brightness** (col 3): `xrandr --brightness` on the active
   output (auto-detected, override with `STREAMDEB_MONITOR_OUTPUT`).
 - **Wallpaper** (key 12): short press rotates, long-press ≥2 s turns it off.
-- **Banner** (key 13): if ON, the inactivity fallback goes to the IDLE
-  banner page (9) instead of SIS.
 - **Perfil V** (key 14): rotates render profile and theme.
 - **Kiosk profile** (key 15): switches this deck to `awa_kiosk.py`
   (see [Profile switch](#profile-switch-main--kiosk-on-dinamo)).
@@ -268,9 +266,8 @@ the five slots, and CTX reconfigures them on the fly. Bundled:
 
 ### Cross-cutting behaviors
 
-- **Auto-fallback** to SIS (or the IDLE banner) and **auto-dim**, both
-  using the values configured in CONF. WEB, KEYS, IDLE and GROWATT are
-  excluded from the fallback.
+- **Auto-fallback** to SIS and **auto-dim**, both using the values configured
+  in CONF. WEB, KEYS and GROWATT are excluded from the fallback.
 - **USB recovery, two layers**: the main loop checks `deck.connected()`
   on every iteration and transparently reopens the device when it
   re-enumerates (suspend, power glitch, cable). A system unit

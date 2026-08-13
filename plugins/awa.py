@@ -14,7 +14,7 @@ from core.widgets import (
 
 
 # Estado live del ESP32 (mutado por tareas_api_fondo). Otros plugins
-# (sistema, banner) lo consultan vía `from plugins.awa import api_info`.
+# (sistema) lo consultan vía `from plugins.awa import api_info`.
 api_info = {
     "online": False, "estado": "---", "cuenta": "---", "modo": 0, "modoNombre": "---",
     "contador": 0, "wifiSignal": 0, "tankOnline": False, "tankSignal": 0,

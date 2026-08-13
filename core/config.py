@@ -33,6 +33,12 @@ TIEMPO_FALLBACK_MIN    = 60
 TIEMPO_FALLBACK_MAX    = 1800
 TIEMPO_DIM_MIN         = 60
 TIEMPO_DIM_MAX         = 7200     # 2 h
+# Auto-dim: opciones fijas de CONF, una por tecla de la columna 2.
+# 0 = nunca atenuar (la X de apagado manual sigue funcionando).
+# Etiquetas cortas a propósito: caben en una línea y salen al mismo tamaño que
+# el resto de valores de CONF (las largas se parten en dos y encogen).
+DIM_OPCIONES = ((1800, "30m"), (3600, "1h"), (0, "Fijo"))
+DIM_TECLAS   = (10, 18, 26)
 LONGPRESS_S            = 2.0      # umbral pulsación larga
 
 # Wallpaper

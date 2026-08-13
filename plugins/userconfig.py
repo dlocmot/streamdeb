@@ -120,7 +120,6 @@ class Settings:
     fallback_seconds: int = 300
     dim_seconds: int = 1800
     profile: int = 2
-    banner_enabled: bool = False
     theme_lcars: str = "classic"
     monitor_brightness: int = 100
 
@@ -231,7 +230,7 @@ def _parse_settings(raw: dict) -> Settings:
     s = Settings()
     for f in (
         "brillo", "fallback_seconds", "dim_seconds", "profile",
-        "banner_enabled", "theme_lcars", "monitor_brightness",
+        "theme_lcars", "monitor_brightness",
     ):
         if f in raw:
             setattr(s, f, raw[f])
@@ -318,10 +317,6 @@ def _toml_str(s: str) -> str:
     return f'"{out}"'
 
 
-def _toml_bool(b: bool) -> str:
-    return "true" if b else "false"
-
-
 def _toml_float(f: float) -> str:
     # Evita 0.333333333... — un decimal con 6 cifras es suficiente para
     # fracciones de pantalla y queda legible.
@@ -342,7 +337,6 @@ def _dump(cfg: "Config") -> str:
     A(f"fallback_seconds   = {cfg.settings.fallback_seconds}")
     A(f"dim_seconds        = {cfg.settings.dim_seconds}")
     A(f"profile            = {cfg.settings.profile}")
-    A(f"banner_enabled     = {_toml_bool(cfg.settings.banner_enabled)}")
     A(f"theme_lcars        = {_toml_str(cfg.settings.theme_lcars)}")
     A(f"monitor_brightness = {cfg.settings.monitor_brightness}")
     A("")

@@ -22,7 +22,6 @@ brillo             = 75      # brillo deck 10..100 (paso 10 en CONF)
 fallback_seconds   = 300     # vuelve a SIS tras N s sin interacción (60..1800)
 dim_seconds        = 1800    # apaga deck tras N s sin interacción (60..7200)
 profile            = 2       # 1=con marcos · 2=sin marco externo · 3=LCARS
-banner_enabled     = false   # si true, fallback va a página IDLE/BANNER en vez de SIS
 theme_lcars        = "classic"  # nombre del tema en plugins/themes/ (solo si profile=3)
 monitor_brightness = 100     # xrandr gamma del monitor externo (10..100)
 

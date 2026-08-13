@@ -31,7 +31,7 @@ from core.config import (
     FONT_PATH, DECK_SERIAL, DUMMY_MODE, PREVIEW_DIR, POLL_HZ,
     CICLO_UPTIME, BRILLO_MIN, BRILLO_MAX, BRILLO_PASO,
     TIEMPO_PASO, TIEMPO_FALLBACK_MIN, TIEMPO_FALLBACK_MAX,
-    TIEMPO_DIM_MIN, TIEMPO_DIM_MAX, LONGPRESS_S,
+    DIM_OPCIONES, DIM_TECLAS, LONGPRESS_S,
     WALLPAPER_BRILLO, WALLPAPER_SATURACION,
     API_HOST, API_USER, API_IP,
 )
@@ -75,18 +75,16 @@ forzar_redraw = False
 _redraw_event = threading.Event()
 brillo_actual    = 75
 tiempo_fallback  = 300    # s sin interacción en otra pág. → vuelve a SIS
-tiempo_dim       = 1800   # s sin interacción → atenúa el deck
+tiempo_dim       = 1800   # s sin interacción → atenúa el deck (0 = nunca)
 perfil_visual    = 1      # 1 = con marcos · 2 = sin marco externo · 3 = LCARS (TNG)
 PERFILES_TOTAL   = 3
 tema_lcars       = "classic"   # nombre del tema activo (plugins/themes/<name>.py)
-banner_enabled   = False  # Si True, la auto-fallback va a página IDLE/BANNER (9) en vez de SIS
 monitor_brillo   = 100    # % brillo del monitor externo vía xrandr gamma
 
 # --- Persistencia: carga state guardado y override defaults ---
 from core import persistence
 _PERSIST_KEYS = ("brillo_actual", "tiempo_fallback", "tiempo_dim",
-                  "perfil_visual", "wallpaper_idx", "banner_enabled",
-                  "tema_lcars")
+                  "perfil_visual", "wallpaper_idx", "tema_lcars")
 
 def _persist_save():
     """Guarda el snapshot actual de state. Llamar tras cada mutación."""
@@ -96,7 +94,6 @@ def _persist_save():
         "tiempo_dim":      tiempo_dim,
         "perfil_visual":   perfil_visual,
         "wallpaper_idx":   wp_get_idx(),
-        "banner_enabled":  banner_enabled,
         "monitor_brillo":  monitor_brillo,
         "tema_lcars":      tema_lcars,
     })
@@ -108,7 +105,7 @@ def wp_get_idx():
 
 def _persist_load():
     """Aplica el state guardado a los globals al iniciar."""
-    global brillo_actual, tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled, monitor_brillo, tema_lcars
+    global brillo_actual, tiempo_fallback, tiempo_dim, perfil_visual, monitor_brillo, tema_lcars
     saved = persistence.load()
     if not saved:
         return
@@ -116,12 +113,17 @@ def _persist_load():
     tiempo_fallback  = int(saved.get("tiempo_fallback", tiempo_fallback))
     tiempo_dim       = int(saved.get("tiempo_dim",      tiempo_dim))
     perfil_visual    = int(saved.get("perfil_visual",   perfil_visual))
-    banner_enabled   = bool(saved.get("banner_enabled", banner_enabled))
     monitor_brillo   = int(saved.get("monitor_brillo",  monitor_brillo))
     tema_lcars       = str(saved.get("tema_lcars",      tema_lcars))
+    # El dim pasó de rango continuo a tres opciones fijas: un valor viejo
+    # (p.ej. 900s) se ajusta al más cercano para que CONF muestre siempre una
+    # seleccionada.
+    _validos = [s for s, _ in DIM_OPCIONES]
+    if tiempo_dim not in _validos:
+        tiempo_dim = min(_validos, key=lambda s: abs(s - tiempo_dim))
     # wallpaper_idx se aplica en _abrir_deck (después de wp.set_layout)
     print(f"[STATE] cargado: brillo={brillo_actual} fallback={tiempo_fallback}s "
-          f"dim={tiempo_dim}s perfil={perfil_visual} banner={banner_enabled} "
+          f"dim={tiempo_dim}s perfil={perfil_visual} "
           f"mon={monitor_brillo}%", flush=True)
 
 _persist_load()
@@ -182,7 +184,6 @@ from plugins import media  as plugin_media
 from plugins import web    as plugin_web
 from plugins import keys   as plugin_keys
 from plugins import vent   as plugin_vent
-from plugins import banner as plugin_banner
 from plugins import awa      as plugin_awa
 from plugins import conf     as plugin_conf
 from plugins import sistema  as plugin_sistema
@@ -436,14 +437,7 @@ def dibujar_boton_keys_nav(deck, tamaño, activo=False):
 
 def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
-    global tiempo_fallback, tiempo_dim, perfil_visual, banner_enabled, monitor_brillo
-
-    # En banner idle (9), cualquier tecla no-nav despierta a SIS.
-    # Las nav (0-7) caen al routing normal de abajo.
-    if pagina_actual == 9 and tecla not in (0, 1, 2, 3, 4, 6, 7):
-        pagina_actual = 1
-        forzar_redraw = True
-        return
+    global tiempo_fallback, tiempo_dim, perfil_visual, monitor_brillo
 
     # Navegación entre páginas (siempre activa)
     if tecla == 0:
@@ -549,13 +543,9 @@ def _accion_boton(deck, tecla):
             tiempo_fallback = max(TIEMPO_FALLBACK_MIN, tiempo_fallback - TIEMPO_PASO)
             print(f"[CONFIG] tiempo_fallback={tiempo_fallback}s", flush=True)
             forzar_redraw = True; _persist_save()
-        # Col 2 — Dim por inactividad (paso 1 min)
-        elif tecla == 10:
-            tiempo_dim = min(TIEMPO_DIM_MAX, tiempo_dim + TIEMPO_PASO)
-            print(f"[CONFIG] tiempo_dim={tiempo_dim}s", flush=True)
-            forzar_redraw = True; _persist_save()
-        elif tecla == 26:
-            tiempo_dim = max(TIEMPO_DIM_MIN, tiempo_dim - TIEMPO_PASO)
+        # Col 2 — Dim: selección directa, una tecla por opción (0 = nunca)
+        elif tecla in DIM_TECLAS:
+            tiempo_dim = DIM_OPCIONES[DIM_TECLAS.index(tecla)][0]
             print(f"[CONFIG] tiempo_dim={tiempo_dim}s", flush=True)
             forzar_redraw = True; _persist_save()
         # Col 3 — Brillo monitor (xrandr gamma)
@@ -571,11 +561,6 @@ def _accion_boton(deck, tecla):
             forzar_redraw = True; _persist_save()
         # Wallpaper: la rotación / apagado se maneja en boton_presionado
         # vía detección de press corto vs long-press (ver _wallpaper_evento).
-        # Banner ON/OFF
-        elif tecla == 13:
-            banner_enabled = not banner_enabled
-            print(f"[CONFIG] banner_enabled={banner_enabled}", flush=True)
-            forzar_redraw = True; _persist_save()
         # Col 6 — Perfil visual (rota 1 → 2 → … → 1)
         # Col 6 — Perfil V: rotación unificada 1 → 2 → 3·<tema1> → 3·<tema2>
         # → ... → wrap a 1. En perfil 3, cada tap avanza al siguiente tema
@@ -1000,9 +985,6 @@ def render_pagina_temps(deck, tam):
     return plugin_sistema.render_pagina_temps(deck, tam, botones_navegacion(deck, tam))
 
 
-def render_pagina_banner(deck, tam):
-    return plugin_banner.render_pagina_banner(deck, tam, DECK_COLS, DECK_ROWS, api_info)
-
 def render_pagina_contexto(deck, tam):
     return plugin_ctx.render_pagina_contexto(deck, tam, botones_navegacion(deck, tam))
 
@@ -1018,7 +1000,7 @@ def render_pagina_config(deck, tam):
         brillo_actual=brillo_actual, tiempo_fallback=tiempo_fallback,
         tiempo_dim=tiempo_dim, perfil_visual=perfil_visual,
         wallpaper_idx=wp.get_idx(), wallpaper_total=wp.total(),
-        banner_enabled=banner_enabled, monitor_brillo=monitor_brillo,
+        monitor_brillo=monitor_brillo,
         tema_lcars=tema_lcars,
     )
 
@@ -1032,7 +1014,6 @@ PAGINAS_RENDER = {
     6:  render_pagina_web,
     7:  render_pagina_keys,
     8:  render_pagina_vent,
-    9:  render_pagina_banner,
     10: render_pagina_docker,
     11: render_pagina_clima,
     12: render_pagina_contexto,
@@ -1048,7 +1029,7 @@ PAGINAS_RENDER = {
 # Refrescan cada REFRESH_LIVE s; el resto (MEDIA/APP/CONF/WEB/KEYS/VENT/CTX)
 # son estáticas o event-driven y se quedan en 1s para responder al instante.
 # Un press despierta el loop de inmediato en cualquier caso.
-PAGINAS_LIVE = {1, 2, 9, 10, 11, 13, 14, 15, 16, 17}
+PAGINAS_LIVE = {1, 2, 10, 11, 13, 14, 15, 16, 17}
 REFRESH_LIVE = 1.0
 
 
@@ -1135,15 +1116,17 @@ def iniciar_dashboard():
                 try: plugin_growatt.set_deck_dimmed(False)
                 except Exception: pass
 
-            # Fallback por inactividad: a banner si activado, si no a SIS.
-            # Excluyo WEB(6) y KEYS(7) — uso prolongado — y banner (9) consigo mismo.
-            if (pagina_actual not in (6, 7, 9, 17)
+            # Fallback por inactividad a SIS. Excluyo WEB(6) y KEYS(7) —uso
+            # prolongado— y GROWATT(17).
+            if (pagina_actual not in (6, 7, 17)
                     and (ahora - ultimo_toque) > tiempo_fallback):
-                pagina_actual = 9 if banner_enabled else 1
+                pagina_actual = 1
                 forzar_redraw = True
 
-            # Auto-dim por inactividad
-            if not modo_dim_activo and (ahora - ultimo_toque) > tiempo_dim:
+            # Auto-dim por inactividad. tiempo_dim == 0 es el modo "Fijo": sin la
+            # guarda, la comparación sería siempre cierta y el deck se apagaría al
+            # instante.
+            if tiempo_dim > 0 and not modo_dim_activo and (ahora - ultimo_toque) > tiempo_dim:
                 try: deck.set_brightness(0)
                 except: pass
                 modo_dim_activo = True
