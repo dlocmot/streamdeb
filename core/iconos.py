@@ -140,6 +140,21 @@ def buscar_icono(nombre):
     return None
 
 
+def olvidar_iconos_fallidos():
+    """Descarta las entradas que quedaron en None (icono no encontrado).
+
+    El fallo se cachea para no repetir ~200 comprobaciones en disco por cada
+    redibujado, pero es una caché *negativa*: sin esto, un icono que aparece
+    después de arrancar —al instalar la app, o al generar el PNG de una que
+    solo trae SVG— seguiría dibujándose como texto hasta reiniciar el servicio.
+    Se llama tras cada hot-reload del TOML. Devuelve cuántas olvidó.
+    """
+    fallidos = [k for k, v in _icono_cache.items() if v is None]
+    for k in fallidos:
+        del _icono_cache[k]
+    return len(fallidos)
+
+
 def cargar_icono(nombre, lado_max):
     """Devuelve PIL.Image RGBA del icono, escalado a `lado_max`. Cachea por (nombre, lado_max)."""
     key = (nombre, lado_max)

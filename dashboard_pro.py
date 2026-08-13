@@ -44,6 +44,7 @@ from core.iconos import (
     buscar_icono as _buscar_icono,
     cargar_icono as _cargar_icono,
     favicon_path as _favicon_core,
+    olvidar_iconos_fallidos as _olvidar_iconos_fallidos,
 )
 from core.widgets import (
     _nuevo_lienzo, set_con_marco_fn, set_perfil_fn, set_lcars_theme_fn,
@@ -286,6 +287,17 @@ def tareas_userconfig_watch():
             plugin_web.reload(cfg)
             plugin_keys.reload(cfg)
             plugin_vent.reload(cfg)
+            # Los iconos que no se encontraron quedaron cacheados como None.
+            # Si alguno apareció desde entonces (app recién instalada, PNG
+            # generado a mano), hay que olvidarlo Y tirar el panel memoizado:
+            # los paneles se cachean por el NOMBRE del icono, así que el tile
+            # con el texto de respaldo sobreviviría al redraw.
+            olvidados = _olvidar_iconos_fallidos()
+            if olvidados:
+                limpiar_cache_paneles()
+                _invalidar_render_cache()
+                print(f"[USERCONFIG] {olvidados} icono(s) fallido(s) reintentables",
+                      flush=True)
             print("[USERCONFIG] hot-reload OK", flush=True)
             forzar_redraw = True
         except plugin_userconfig.ConfigError as e:
