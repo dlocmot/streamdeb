@@ -360,9 +360,23 @@ action = { type = "combo", keys = "ctrl+shift+v" }
 
 # ─────────────────────── VENT (página 8) ───────────────────────
 # Tiling de ventanas vía wmctrl. fraction_{x,y} = [min, max] como
-# fracción de la pantalla. wmctrl_geom es la geometría literal
-# pasada a `wmctrl -e` (calculada para 3840×1200, dejando 27px de
-# margen vertical para el panel MATE).
+# fracción de la pantalla (solo para dibujar el preview del botón).
+#
+# ⚠️ wmctrl_geom CALIBRADO (2026-08-17) para 3840x1200 con panel MATE de
+# 29 px. No tocar "a ojo": el mapeo de wmctrl es que la x,y que pides es
+# la del MARCO pero el w,h es el del CLIENTE, y con la decoración de Marco
+# (_NET_FRAME_EXTENTS = 1,1,25,1) el marco mide w+2 por h+26. Para que los
+# marcos encajen borde con borde en el área de trabajo (y 29..1200):
+#     ancho:  tercios -> marcos en 0/1280/2560 de 1280 -> w = 1278
+#             mitades -> marcos en 0/1920      de 1920 -> w = 1918
+#     alto:   completo -> y=29,  h = 1171-26 = 1145
+#             arriba   -> y=29,  h =  585-26 =  559
+#             abajo    -> y=614, h =  586-26 =  560
+# Las anteriores (y=27, w=1276, h=1168) no descontaban la barra de título:
+# dejaban 49 px de solapamiento entre la mitad superior y la inferior.
+#
+# Mismas geometrías que ~/.xbindkeysrc (atajos Super+N). Si cambias unas,
+# cambia las otras.
 [pages.vent]
 display_name = "WIN"
 
@@ -372,35 +386,35 @@ key         = 8
 label       = "Izq"
 fraction_x  = [0.0, 0.333]
 fraction_y  = [0.0, 1.0]
-wmctrl_geom = "0,0,27,1276,1168"
+wmctrl_geom = "0,0,29,1278,1145"
 
 [[pages.vent.buttons]]
 key         = 9
 label       = "Centro"
 fraction_x  = [0.333, 0.667]
 fraction_y  = [0.0, 1.0]
-wmctrl_geom = "0,1282,27,1276,1168"
+wmctrl_geom = "0,1280,29,1278,1145"
 
 [[pages.vent.buttons]]
 key         = 10
 label       = "Der"
 fraction_x  = [0.667, 1.0]
 fraction_y  = [0.0, 1.0]
-wmctrl_geom = "0,2564,27,1276,1168"
+wmctrl_geom = "0,2560,29,1278,1145"
 
 [[pages.vent.buttons]]
 key         = 11
 label       = "M.Izq"
 fraction_x  = [0.0, 0.5]
 fraction_y  = [0.0, 1.0]
-wmctrl_geom = "0,0,27,1917,1168"
+wmctrl_geom = "0,0,29,1918,1145"
 
 [[pages.vent.buttons]]
 key         = 12
 label       = "M.Der"
 fraction_x  = [0.5, 1.0]
 fraction_y  = [0.0, 1.0]
-wmctrl_geom = "0,1923,27,1917,1168"
+wmctrl_geom = "0,1920,29,1918,1145"
 
 # Fila 3 — mitad superior
 [[pages.vent.buttons]]
@@ -408,35 +422,35 @@ key         = 16
 label       = "Izq↑"
 fraction_x  = [0.0, 0.333]
 fraction_y  = [0.0, 0.5]
-wmctrl_geom = "0,0,27,1276,584"
+wmctrl_geom = "0,0,29,1278,559"
 
 [[pages.vent.buttons]]
 key         = 17
 label       = "Cen↑"
 fraction_x  = [0.333, 0.667]
 fraction_y  = [0.0, 0.5]
-wmctrl_geom = "0,1282,27,1276,584"
+wmctrl_geom = "0,1280,29,1278,559"
 
 [[pages.vent.buttons]]
 key         = 18
 label       = "Der↑"
 fraction_x  = [0.667, 1.0]
 fraction_y  = [0.0, 0.5]
-wmctrl_geom = "0,2564,27,1276,584"
+wmctrl_geom = "0,2560,29,1278,559"
 
 [[pages.vent.buttons]]
 key         = 19
 label       = "MI↑"
 fraction_x  = [0.0, 0.5]
 fraction_y  = [0.0, 0.5]
-wmctrl_geom = "0,0,27,1917,584"
+wmctrl_geom = "0,0,29,1918,559"
 
 [[pages.vent.buttons]]
 key         = 20
 label       = "MD↑"
 fraction_x  = [0.5, 1.0]
 fraction_y  = [0.0, 0.5]
-wmctrl_geom = "0,1923,27,1917,584"
+wmctrl_geom = "0,1920,29,1918,559"
 
 # Fila 4 — mitad inferior
 [[pages.vent.buttons]]
@@ -444,32 +458,32 @@ key         = 24
 label       = "Izq↓"
 fraction_x  = [0.0, 0.333]
 fraction_y  = [0.5, 1.0]
-wmctrl_geom = "0,0,611,1276,584"
+wmctrl_geom = "0,0,614,1278,560"
 
 [[pages.vent.buttons]]
 key         = 25
 label       = "Cen↓"
 fraction_x  = [0.333, 0.667]
 fraction_y  = [0.5, 1.0]
-wmctrl_geom = "0,1282,611,1276,584"
+wmctrl_geom = "0,1280,614,1278,560"
 
 [[pages.vent.buttons]]
 key         = 26
 label       = "Der↓"
 fraction_x  = [0.667, 1.0]
 fraction_y  = [0.5, 1.0]
-wmctrl_geom = "0,2564,611,1276,584"
+wmctrl_geom = "0,2560,614,1278,560"
 
 [[pages.vent.buttons]]
 key         = 27
 label       = "MI↓"
 fraction_x  = [0.0, 0.5]
 fraction_y  = [0.5, 1.0]
-wmctrl_geom = "0,0,611,1917,584"
+wmctrl_geom = "0,0,614,1918,560"
 
 [[pages.vent.buttons]]
 key         = 28
 label       = "MD↓"
 fraction_x  = [0.5, 1.0]
 fraction_y  = [0.5, 1.0]
-wmctrl_geom = "0,1923,611,1917,584"
+wmctrl_geom = "0,1920,614,1918,560"

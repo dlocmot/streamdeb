@@ -12,8 +12,10 @@ from core.widgets import _nuevo_lienzo, con_marco, dibujar_btn_icono_nav
 
 
 # tecla → (label, x_ini, x_fin, y_ini, y_fin, geometría wmctrl "x,y,w,h")
-# Data declarativa en config/default.toml; geometrías wmctrl calculadas para
-# 3840×1200 con 27px de margen vertical para el panel MATE.
+# Data declarativa en config/default.toml; las geometrías están CALIBRADAS para
+# 3840×1200 con panel MATE de 29px — ver el comentario de la sección [pages.vent]
+# de ese archivo antes de tocarlas (la x,y de wmctrl es la del marco pero el w,h
+# es el del cliente, así que hay que descontar la barra de título).
 VENT_PAGINA: dict[int, tuple] = {}
 
 
