@@ -119,11 +119,12 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
 
 - **Cores** (keys 8–9): four vertical bars per tile, so an 8-core CPU reads
-  as two tiles — the first titled `Cores N%` with total CPU. Bars are labelled
-  with their real core number. Tap → CORES subpage (id 13) with one core per
-  key, top 5 CPU processes and top 5 memory (GB).
-- **Temp** (keys 10–11): same split, one tile per group of four, titled with
-  that group's average. **Scale and colours come from the sensor itself**, not
+  as two tiles, each titled with **that group's own average**. Bars are
+  labelled with their real core number. Total CPU is not on SIS — it lives in
+  the CORES subpage (id 13), reached by tapping either tile, along with one
+  core per key, top 5 CPU processes and top 5 memory (GB).
+- **Temp** (keys 10–11): same split and the same titling — one tile per group
+  of four, each showing its own average. **Scale and colours come from the sensor itself**, not
   from hardcoded constants: the bar covers the last 35 °C before `critical`,
   and the colours are green up to 10° below `high`, yellow to `high`, amber to
   `critical`, red above. Tap → TEMPS subpage (id 16) with one core per key plus

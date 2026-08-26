@@ -339,7 +339,6 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     global max_visto_down, max_visto_up, _net_t
     up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
-    cpu_t = psutil.cpu_percent()
     cores = psutil.cpu_percent(percpu=True)
     ram   = psutil.virtual_memory().percent
     swp   = psutil.swap_memory().percent
@@ -375,10 +374,10 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     # segundo tile no se dibuja y la tecla queda libre.
     for i, base in enumerate(range(0, min(len(cores), 8), 4)):
         grupo = list(cores[base:base+4])
-        titulo = (f"Cores {int(cpu_t)}%" if base == 0
-                  else f"C{base+1}-{base+len(grupo)}")
-        imgs[8+i] = dibujar_panel_cores(deck, tam, titulo, grupo,
-                                        obtener_color_rango, etiqueta_base=base+1)
+        avg_g = sum(grupo) / len(grupo)
+        imgs[8+i] = dibujar_panel_cores(deck, tam, f"Cores {int(round(avg_g))}%",
+                                        grupo, obtener_color_rango,
+                                        etiqueta_base=base+1)
 
     # Temperatura por core, mismos grupos: 10 → 1-4, 11 → 5-8.
     temps_per_core, _crit = _temps_cores()
@@ -393,7 +392,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
             pcts = [_temp_color_pct(t, crit) for t in grupo]
             avg = sum(grupo) / len(grupo)
             imgs[10+i] = dibujar_panel_cores(
-                deck, tam, f"T{base+1}-{base+len(grupo)} {int(round(avg))}°",
+                deck, tam, f"Temp {int(round(avg))}°",
                 pcts, _col, etiqueta_base=base+1)
     # Pings gateway / 1.1.1.1 / 8.8.8.8 consolidados en tecla 28
     items = []
