@@ -1,9 +1,12 @@
 """Plugin SIS (página 1): dashboard de sistema con CPU/RAM/red/pings.
 Inyecta widgets de otros plugins (clima 19, docker 26, growatt 12, gridwatch 27).
 Subpáginas: CORES (13), PINGS (14), NET (15), TEMPS (16)."""
+import math
+import os
 import time
 import threading
 from collections import deque
+from types import SimpleNamespace
 
 import psutil
 
@@ -17,24 +20,92 @@ from core.widgets import dibujar_panel_metrica, dibujar_panel_cores, dibujar_pan
 # tráfico normal (medido: 391 kb/s contra un pico de 31 Mb/s = 1% de barra).
 # Ahora es el pico de una ventana móvil, así que se recupera sola.
 NET_VENTANA_S  = 300.0    # 5 min de historia para el pico
-NET_ESCALA_MIN = 1024.0   # kb/s — suelo, para que el tráfico de fondo no llene la barra
+
+# Intervalo mínimo entre muestras. Por debajo de esto, Δbytes/Δt es ruido: un
+# redibujado disparado por una pulsación puede caer a milisegundos del anterior
+# y el cociente dispara valores absurdos (se midió un "pico" de 142 Mb/s con la
+# red en reposo) que además contaminaban la escala durante minutos.
+NET_DT_MIN = 0.5
+
+# Escala logarítmica: el caudal abarca cinco órdenes de magnitud (reposo ~10 kb/s,
+# descarga ~100 Mb/s) y ninguna barra lineal puede mostrar ambos extremos — con
+# suelo bajo se satura al navegar, con suelo alto el uso normal es invisible.
+NET_LOG_MIN =      1.0    # kb/s → barra vacía
+NET_LOG_MAX = 100000.0    # kb/s (100 Mb/s) → barra llena
+
+_NICS_TTL = 60.0
+_nics_cache = {"lista": None, "ts": 0.0}
+
+
+def _nics_fisicas():
+    """Interfaces con hardware real: sólo ellas tienen `device` en sysfs.
+
+    Excluye loopback, los puentes de Docker, veth y las VPN: su tráfico viaja
+    además por la interfaz física, así que sumarlas lo contaría dos veces."""
+    ahora = time.time()
+    if _nics_cache["lista"] is None or ahora - _nics_cache["ts"] > _NICS_TTL:
+        try:
+            _nics_cache["lista"] = [n for n in os.listdir("/sys/class/net")
+                                    if os.path.exists(f"/sys/class/net/{n}/device")]
+        except OSError:
+            _nics_cache["lista"] = []
+        _nics_cache["ts"] = ahora
+    return _nics_cache["lista"]
+
+
+_NET_CAMPOS = ("bytes_recv", "bytes_sent", "packets_recv", "packets_sent",
+               "errin", "errout", "dropin", "dropout")
+
+
+def _net_contadores():
+    """Contadores sumados de las interfaces físicas (fallback: todo el sistema)."""
+    per = psutil.net_io_counters(pernic=True)
+    nics = [n for n in _nics_fisicas() if n in per]
+    if not nics:
+        return psutil.net_io_counters()
+    return SimpleNamespace(**{c: sum(getattr(per[n], c) for n in nics)
+                              for c in _NET_CAMPOS})
+
+
+def _net_pct(kbps):
+    """Altura de barra 0-100 en escala logarítmica."""
+    v = max(NET_LOG_MIN, min(NET_LOG_MAX, kbps))
+    return math.log10(v / NET_LOG_MIN) / math.log10(NET_LOG_MAX / NET_LOG_MIN) * 100
 
 _net_hist = {"down": deque(), "up": deque()}   # clave → [(ts, kbps), ...]
-_net_t    = None   # timestamp de la última muestra de red (para kb/s)
+_net_rate = {"down": 0.0, "up": 0.0, "cur": None, "ts": 0.0}
 
 
-def _net_escala(clave, kbps, ahora):
-    """Registra la muestra y devuelve (escala_de_barra, pico_de_la_ventana).
+def _net_muestrear(ahora=None):
+    """Muestrea los contadores del sistema y devuelve (dn_kbps, up_kbps).
 
-    La escala lleva suelo para que un goteo de fondo no se dibuje como saturado;
-    el pico se devuelve crudo porque la página NET lo muestra como dato."""
-    h = _net_hist[clave]
-    h.append((ahora, kbps))
-    limite = ahora - NET_VENTANA_S
-    while h and h[0][0] < limite:
-        h.popleft()
-    pico = max(v for _, v in h)
-    return max(NET_ESCALA_MIN, pico), pico
+    Si no ha pasado NET_DT_MIN desde la última muestra válida, devuelve la
+    anterior sin recalcular ni tocar la historia."""
+    ahora = ahora if ahora is not None else time.time()
+    cur = _net_contadores()
+    prev, prev_t = _net_rate["cur"], _net_rate["ts"]
+    dt = ahora - prev_t
+    if prev is None:
+        _net_rate["cur"], _net_rate["ts"] = cur, ahora
+        return 0.0, 0.0
+    if dt < NET_DT_MIN:
+        return _net_rate["down"], _net_rate["up"]
+    dn = (cur.bytes_recv - prev.bytes_recv) * 8 / 1024 / dt
+    up = (cur.bytes_sent - prev.bytes_sent) * 8 / 1024 / dt
+    _net_rate.update(down=dn, up=up, cur=cur, ts=ahora)
+    for clave, v in (("down", dn), ("up", up)):
+        h = _net_hist[clave]
+        h.append((ahora, v))
+        limite = ahora - NET_VENTANA_S
+        while h and h[0][0] < limite:
+            h.popleft()
+    return dn, up
+
+
+def _net_pico(clave):
+    """Pico de la ventana móvil. Sólo es un dato que muestra la página NET; la
+    altura de las barras la decide _net_pct (logarítmica)."""
+    return max((v for _, v in _net_hist[clave]), default=0.0)
 
 
 def _fmt_uptime(segundos):
@@ -222,25 +293,12 @@ def render_pagina_temps(deck, tam, nav_imgs):
     return imgs
 
 
-_net_last = {"sample": None, "ts": 0.0}
-
-
 def render_pagina_net(deck, tam, nav_imgs):
     """Página NET (id 15): detalle throughput red — actual / pico / totales."""
-    cur = psutil.net_io_counters()
-    now = time.time()
-    prev = _net_last["sample"]
-    prev_t = _net_last["ts"]
-    _net_last["sample"] = cur
-    _net_last["ts"] = now
-
-    dn_kbps = up_kbps = 0.0
-    if prev is not None and now > prev_t:
-        dt = now - prev_t
-        dn_kbps = ((cur.bytes_recv - prev.bytes_recv) * 8) / 1024 / dt
-        up_kbps = ((cur.bytes_sent - prev.bytes_sent) * 8) / 1024 / dt
-    escala_dn, pico_dn = _net_escala("down", dn_kbps, now)
-    escala_up, pico_up = _net_escala("up",   up_kbps, now)
+    dn_kbps, up_kbps = _net_muestrear()
+    cur = _net_contadores()
+    pico_dn = _net_pico("down")
+    pico_up = _net_pico("up")
     f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
     f_b = lambda v: (f"{v/(1024**3):.1f}G" if v >= 1024**3
                      else f"{v/(1024**2):.0f}M")
@@ -248,9 +306,9 @@ def render_pagina_net(deck, tam, nav_imgs):
     imgs = dict(nav_imgs)
     # Fila 1: actuales + max
     imgs[8]  = dibujar_panel_metrica(deck, tam, "DOWN",  f_r(dn_kbps), "#33ccff",
-                                       pct=(dn_kbps/escala_dn)*100, sub="kbps")
+                                       pct=_net_pct(dn_kbps), sub="kbps")
     imgs[9]  = dibujar_panel_metrica(deck, tam, "UP",    f_r(up_kbps), "#0066ff",
-                                       pct=(up_kbps/escala_up)*100, sub="kbps")
+                                       pct=_net_pct(up_kbps), sub="kbps")
     imgs[10] = dibujar_panel_metrica(deck, tam, "D max", f_r(pico_dn), "#3399cc",
                                        sub="pico 5m")
     imgs[11] = dibujar_panel_metrica(deck, tam, "U max", f_r(pico_up), "#003388",
@@ -356,23 +414,16 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
                             widgets_extras=None):
     """Render SIS. `widgets_extras`: dict {tecla: PIL} de plugins externos
     (clima, docker) — se mergea al final."""
-    global _net_t
     up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
     cores = psutil.cpu_percent(percpu=True)
     ram   = psutil.virtual_memory().percent
     swp   = psutil.swap_memory().percent
     disk  = psutil.disk_usage('/')
-    # Rate normalizado a kb/s: el intervalo entre frames ya no es fijo (SIS
-    # refresca cada 2s), así que dividimos por el tiempo real transcurrido
-    # en vez de asumir 1s — si no, el número se infla con el intervalo.
-    ahora = time.time()
-    elapsed = max(0.1, ahora - _net_t) if _net_t else 1.0
-    _net_t = ahora
-    dn_kbps = ((cur_net.bytes_recv - last_net.bytes_recv) * 8) / 1024 / elapsed
-    up_kbps = ((cur_net.bytes_sent - last_net.bytes_sent) * 8) / 1024 / elapsed
-    escala_dn, _pico_dn = _net_escala("down", dn_kbps, ahora)
-    escala_up, _pico_up = _net_escala("up",   up_kbps, ahora)
+    # El rate lo lleva _net_muestrear, que ignora los intervalos demasiado
+    # cortos. Los contadores que pasa dashboard_pro (last_net/cur_net) se
+    # mantienen en la firma por compatibilidad pero ya no se usan aquí.
+    dn_kbps, up_kbps = _net_muestrear()
     f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
 
     imgs = dict(nav_imgs)
@@ -385,9 +436,11 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
         18: dibujar_panel_metrica(deck, tam, "ROOT", f"{disk.free/(1024**3):.1f}G",
                                     obtener_color_rango(disk.percent), pct=disk.percent),
         # Fila 3: red consolidada en tecla 24 (DOWN+UP) → página NET
+        # La etiqueta de cada barra ES el caudal: en un tile de 96 px el número
+        # rinde más que una "D"/"U" que ya se deducen por posición y color.
         24: dibujar_panel_pings(deck, tam, "Net", [
-            ("D", (dn_kbps/escala_dn)*100, "#33ccff", f_r(dn_kbps)),
-            ("U", (up_kbps/escala_up)*100, "#0066ff", f_r(up_kbps)),
+            (f_r(dn_kbps), _net_pct(dn_kbps), "#33ccff", ""),
+            (f_r(up_kbps), _net_pct(up_kbps), "#0066ff", ""),
         ]),
     })
     # Cores en grupos de 4 por tecla: 8 → 1-4, 9 → 5-8. Con 4 cores o menos el

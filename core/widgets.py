@@ -509,8 +509,9 @@ def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn, etiqueta_base=
 @_memoize_panel
 def dibujar_panel_pings(deck, tamaño, titulo, items):
     """Panel header + N barras verticales para latencias.
-    items: lista [(label_corto, pct, color, ms_str), ...]. ms_str se dibuja
-    abajo de cada barra."""
+    items: lista [(label_corto, pct, color, valor_str), ...]. `valor_str` se
+    dibuja sobre la barra, con halo negro para que se lea tanto encima del
+    relleno de color como del hueco vacío."""
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
@@ -533,19 +534,46 @@ def dibujar_panel_pings(deck, tamaño, titulo, items):
     pad_x = 8
     gap = 4
     zone_top = 32
-    zone_bot = (_lcars_body_bottom(tamaño) - 12) if lcars else (tamaño[1] - 16)
+    zone_bot = (_lcars_body_bottom(tamaño) - 14) if lcars else (tamaño[1] - 22)
     bar_zone_h = zone_bot - zone_top
     bar_w = (tamaño[0] - 2*pad_x - gap*(n-1)) // n
-    f_lbl = cargar_fuente(9)
-    for i, (lbl, pct, color, _ms) in enumerate(items):
+    def _fuente_comun(textos, ancho, tams):
+        """Mayor tamaño en el que TODOS los textos caben en `ancho`.
+
+        Se elige uno para el tile entero: si cada barra escogiera el suyo, un
+        "0.3" saldría enorme junto a un "41.7" y el conjunto queda desigual."""
+        textos = [str(t) for t in textos if str(t)]
+        if not textos:
+            return None
+        for tam_f in tams:
+            cand = cargar_fuente(tam_f)
+            if max(dibujo.textlength(t, font=cand) for t in textos) <= ancho:
+                return cand
+        return cargar_fuente(tams[-1])
+
+    f_lbl = _fuente_comun([it[0] for it in items], bar_w + gap - 1,
+                          (17, 16, 15, 14, 13, 12, 11, 10, 9, 8)) or cargar_fuente(9)
+    f_val = _fuente_comun([it[3] for it in items], bar_w - 2,
+                          (15, 14, 13, 12, 11, 10, 9, 8))
+
+    for i, (lbl, pct, color, valor) in enumerate(items):
         x = pad_x + i*(bar_w + gap)
         dibujo.rectangle((x, zone_top, x+bar_w, zone_bot), outline="#333333", fill="#111111")
         p = max(0, min(100, pct))
         fill_h = int(bar_zone_h * (p/100))
         if fill_h > 0:
             dibujo.rectangle((x, zone_bot - fill_h, x+bar_w, zone_bot), fill=color)
-        lbl_y = (zone_bot + 6) if lcars else (tamaño[1]-7)
-        dibujo.text((x + bar_w//2, lbl_y), lbl, font=f_lbl, fill="#aaaaaa", anchor="mm")
+        # Valor sobre la barra. Va con halo negro porque cruza tanto la zona
+        # llena (color vivo) como la vacía (casi negra) según el nivel.
+        if valor and f_val is not None:
+            cx, cy = x + bar_w//2, zone_top + bar_zone_h//2
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                dibujo.text((cx+dx, cy+dy), str(valor), font=f_val,
+                            fill="#000000", anchor="mm")
+            dibujo.text((cx, cy), str(valor), font=f_val,
+                        fill="#ffffff", anchor="mm")
+        lbl_y = (zone_bot + 8) if lcars else (tamaño[1]-11)
+        dibujo.text((x + bar_w//2, lbl_y), lbl, font=f_lbl, fill="#ffffff", anchor="mm")
     return imagen
 
 
