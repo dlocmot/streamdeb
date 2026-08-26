@@ -1,8 +1,10 @@
 """Plugin SIS (página 1): dashboard de sistema con CPU/RAM/red/pings.
-Inyecta widgets de clima (20-23) y docker entry (31).
-Subpágina CORES (id 13): detalle C1-C4 + top 5 CPU + top 5 MEM."""
+Inyecta widgets de otros plugins (clima 19, docker 26, growatt 12, gridwatch 27).
+Subpáginas: CORES (13), PINGS (14), NET (15), TEMPS (16)."""
 import time
 import threading
+from collections import deque
+
 import psutil
 
 from core.config import CICLO_UPTIME
@@ -10,10 +12,29 @@ from core.helpers import _fmt_tiempo, _ip_2_lineas, obtener_color_rango
 from core.widgets import dibujar_panel_metrica, dibujar_panel_cores, dibujar_panel_pings
 
 
-# Highwater de throughput de red para escalar las barras de DOWN/UP.
-max_visto_down = 1024.0
-max_visto_up   = 1024.0
-_net_t         = None   # timestamp de la última muestra de red (para kb/s)
+# Escala de las barras de red. Antes era un máximo histórico que sólo crecía:
+# bastaba una descarga para dejar la escala clavada y volver invisible todo el
+# tráfico normal (medido: 391 kb/s contra un pico de 31 Mb/s = 1% de barra).
+# Ahora es el pico de una ventana móvil, así que se recupera sola.
+NET_VENTANA_S  = 300.0    # 5 min de historia para el pico
+NET_ESCALA_MIN = 1024.0   # kb/s — suelo, para que el tráfico de fondo no llene la barra
+
+_net_hist = {"down": deque(), "up": deque()}   # clave → [(ts, kbps), ...]
+_net_t    = None   # timestamp de la última muestra de red (para kb/s)
+
+
+def _net_escala(clave, kbps, ahora):
+    """Registra la muestra y devuelve (escala_de_barra, pico_de_la_ventana).
+
+    La escala lleva suelo para que un goteo de fondo no se dibuje como saturado;
+    el pico se devuelve crudo porque la página NET lo muestra como dato."""
+    h = _net_hist[clave]
+    h.append((ahora, kbps))
+    limite = ahora - NET_VENTANA_S
+    while h and h[0][0] < limite:
+        h.popleft()
+    pico = max(v for _, v in h)
+    return max(NET_ESCALA_MIN, pico), pico
 
 
 def _fmt_uptime(segundos):
@@ -205,8 +226,7 @@ _net_last = {"sample": None, "ts": 0.0}
 
 
 def render_pagina_net(deck, tam, nav_imgs):
-    """Página NET (id 15): detalle throughput red — actual / max / totales."""
-    global max_visto_down, max_visto_up
+    """Página NET (id 15): detalle throughput red — actual / pico / totales."""
     cur = psutil.net_io_counters()
     now = time.time()
     prev = _net_last["sample"]
@@ -219,8 +239,8 @@ def render_pagina_net(deck, tam, nav_imgs):
         dt = now - prev_t
         dn_kbps = ((cur.bytes_recv - prev.bytes_recv) * 8) / 1024 / dt
         up_kbps = ((cur.bytes_sent - prev.bytes_sent) * 8) / 1024 / dt
-    max_visto_down = max(max_visto_down, dn_kbps)
-    max_visto_up   = max(max_visto_up,   up_kbps)
+    escala_dn, pico_dn = _net_escala("down", dn_kbps, now)
+    escala_up, pico_up = _net_escala("up",   up_kbps, now)
     f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
     f_b = lambda v: (f"{v/(1024**3):.1f}G" if v >= 1024**3
                      else f"{v/(1024**2):.0f}M")
@@ -228,13 +248,13 @@ def render_pagina_net(deck, tam, nav_imgs):
     imgs = dict(nav_imgs)
     # Fila 1: actuales + max
     imgs[8]  = dibujar_panel_metrica(deck, tam, "DOWN",  f_r(dn_kbps), "#33ccff",
-                                       pct=(dn_kbps/max_visto_down)*100, sub="kbps")
+                                       pct=(dn_kbps/escala_dn)*100, sub="kbps")
     imgs[9]  = dibujar_panel_metrica(deck, tam, "UP",    f_r(up_kbps), "#0066ff",
-                                       pct=(up_kbps/max_visto_up)*100, sub="kbps")
-    imgs[10] = dibujar_panel_metrica(deck, tam, "D max", f_r(max_visto_down), "#3399cc",
-                                       sub="pico")
-    imgs[11] = dibujar_panel_metrica(deck, tam, "U max", f_r(max_visto_up), "#003388",
-                                       sub="pico")
+                                       pct=(up_kbps/escala_up)*100, sub="kbps")
+    imgs[10] = dibujar_panel_metrica(deck, tam, "D max", f_r(pico_dn), "#3399cc",
+                                       sub="pico 5m")
+    imgs[11] = dibujar_panel_metrica(deck, tam, "U max", f_r(pico_up), "#003388",
+                                       sub="pico 5m")
     # Fila 2: totales acumulados desde boot
     imgs[16] = dibujar_panel_metrica(deck, tam, "RX",    f_b(cur.bytes_recv), "#33ccff",
                                        sub="total")
@@ -336,7 +356,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
                             widgets_extras=None):
     """Render SIS. `widgets_extras`: dict {tecla: PIL} de plugins externos
     (clima, docker) — se mergea al final."""
-    global max_visto_down, max_visto_up, _net_t
+    global _net_t
     up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
     cores = psutil.cpu_percent(percpu=True)
@@ -351,8 +371,8 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     _net_t = ahora
     dn_kbps = ((cur_net.bytes_recv - last_net.bytes_recv) * 8) / 1024 / elapsed
     up_kbps = ((cur_net.bytes_sent - last_net.bytes_sent) * 8) / 1024 / elapsed
-    max_visto_down = max(max_visto_down, dn_kbps)
-    max_visto_up   = max(max_visto_up,   up_kbps)
+    escala_dn, _pico_dn = _net_escala("down", dn_kbps, ahora)
+    escala_up, _pico_up = _net_escala("up",   up_kbps, ahora)
     f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
 
     imgs = dict(nav_imgs)
@@ -366,8 +386,8 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
                                     obtener_color_rango(disk.percent), pct=disk.percent),
         # Fila 3: red consolidada en tecla 24 (DOWN+UP) → página NET
         24: dibujar_panel_pings(deck, tam, "Net", [
-            ("D", (dn_kbps/max_visto_down)*100, "#33ccff", f_r(dn_kbps)),
-            ("U", (up_kbps/max_visto_up)*100,   "#0066ff", f_r(up_kbps)),
+            ("D", (dn_kbps/escala_dn)*100, "#33ccff", f_r(dn_kbps)),
+            ("U", (up_kbps/escala_up)*100, "#0066ff", f_r(up_kbps)),
         ]),
     })
     # Cores en grupos de 4 por tecla: 8 → 1-4, 9 → 5-8. Con 4 cores o menos el

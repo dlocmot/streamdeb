@@ -134,9 +134,11 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   on top of the load bar. Tap → GROWATT page (id 17).
 - **Weather** (key 19): WMO icon + current temp + min/max. Tap →
   WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip.
-- **Net** (key 24): 2 D/U bars scaled to the observed peak. Tap → NET
-  subpage (id 15) with current DOWN/UP + peak, total RX/TX, packet
-  counts and errors/drops.
+- **Net** (key 24): 2 D/U bars scaled to the **peak of the last 5 minutes**,
+  with a 1 Mb/s floor. An all-time peak would be scaled by a single download
+  forever, leaving ordinary traffic as an invisible sliver; a moving window
+  recovers on its own. Tap → NET subpage (id 15) with current DOWN/UP, the
+  5-minute peak, total RX/TX, packet counts and errors/drops.
 - **Pings** (key 25): 3 bars (GW/CF/G) colored by relative latency.
   Tap → PINGS subpage (id 14) with per-target detail (current / avg /
   max·min) + public and local IPs.
