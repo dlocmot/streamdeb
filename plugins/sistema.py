@@ -317,21 +317,21 @@ def render_pagina_net(deck, tam, nav_imgs):
 
     imgs = dict(nav_imgs)
     # Fila 1: actuales + max
-    imgs[8]  = dibujar_panel_metrica(deck, tam, "DOWN",  f_r(dn_kbps), "#33ccff",
+    imgs[8]  = dibujar_panel_metrica(deck, tam, "DOWN",  f_r(dn_kbps), "#cc66ff",
                                        pct=_net_pct(dn_kbps), sub="kbps")
     imgs[9]  = dibujar_panel_metrica(deck, tam, "UP",    f_r(up_kbps), "#0066ff",
                                        pct=_net_pct(up_kbps), sub="kbps")
-    imgs[10] = dibujar_panel_metrica(deck, tam, "D max", f_r(pico_dn), "#3399cc",
+    imgs[10] = dibujar_panel_metrica(deck, tam, "D max", f_r(pico_dn), "#9955cc",
                                        sub="pico 5m")
     imgs[11] = dibujar_panel_metrica(deck, tam, "U max", f_r(pico_up), "#003388",
                                        sub="pico 5m")
     # Fila 2: totales acumulados desde boot
-    imgs[16] = dibujar_panel_metrica(deck, tam, "RX",    f_b(cur.bytes_recv), "#33ccff",
+    imgs[16] = dibujar_panel_metrica(deck, tam, "RX",    f_b(cur.bytes_recv), "#cc66ff",
                                        sub="total")
     imgs[17] = dibujar_panel_metrica(deck, tam, "TX",    f_b(cur.bytes_sent), "#0066ff",
                                        sub="total")
     imgs[18] = dibujar_panel_metrica(deck, tam, "Pkts R", f"{cur.packets_recv:,}".replace(",","."),
-                                       "#33ccff")
+                                       "#cc66ff")
     imgs[19] = dibujar_panel_metrica(deck, tam, "Pkts T", f"{cur.packets_sent:,}".replace(",","."),
                                        "#0066ff")
     # Fila 3: errores / drops
@@ -451,9 +451,9 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
         # La etiqueta de cada barra ES el caudal: en un tile de 96 px el número
         # rinde más que una "D"/"U" que ya se deducen por posición y color.
         24: dibujar_panel_pings(deck, tam, "Net", [
-            (f_r(dn_kbps), _net_pct(dn_kbps), "#33ccff", ""),
+            (f_r(dn_kbps), _net_pct(dn_kbps), "#cc66ff", ""),
             (f_r(up_kbps), _net_pct(up_kbps), "#0066ff", ""),
-        ]),
+        ], color_marco="#33ccff"),
     })
     # Cores en grupos de 4 por tecla: 8 → 1-4, 9 → 5-8. Con 4 cores o menos el
     # segundo tile no se dibuja y la tecla queda libre.

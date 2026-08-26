@@ -511,17 +511,22 @@ def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn, etiqueta_base=
 
 
 @_memoize_panel
-def dibujar_panel_pings(deck, tamaño, titulo, items):
+def dibujar_panel_pings(deck, tamaño, titulo, items, color_marco=None):
     """Panel header + N barras verticales para latencias.
     items: lista [(label_corto, pct, color, valor_str), ...]. `valor_str` se
     dibuja sobre la barra, con halo negro para que se lea tanto encima del
-    relleno de color como del hueco vacío."""
+    relleno de color como del hueco vacío.
+
+    `color_marco` fija el color del título y el marco. Por defecto se toma del
+    item con la barra más alta, que en los pings señala la peor latencia; en
+    tiles donde "más alto" no es una alerta (caudal de red) conviene fijarlo
+    para que la cabecera no cambie de color sola."""
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     rect = (4, 4, tamaño[0]-5, tamaño[1]-5)
     # Color del marco: peor (más alto pct) entre los items.
-    worst_color = "#33ff33"
-    if items:
+    worst_color = color_marco or "#33ff33"
+    if items and color_marco is None:
         worst = max(items, key=lambda x: x[1])
         worst_color = worst[2]
     lcars = es_lcars()

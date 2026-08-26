@@ -134,8 +134,9 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   on top of the load bar. Tap → GROWATT page (id 17).
 - **Weather** (key 19): WMO icon + current temp + min/max. Tap →
   WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip.
-- **Net** (key 24): 2 down/up bars on a **logarithmic scale** (1 kb/s →
-  100 Mb/s), each labelled with its own throughput. Throughput spans five
+- **Net** (key 24): 2 bars on a **logarithmic scale** (1 kb/s → 100 Mb/s),
+  each labelled with its own throughput — **purple for download, blue for
+  upload**, the same pairing on the detail page. Throughput spans five
   orders of magnitude — idle chatter of ~10 kb/s against downloads of
   100 Mb/s — and no linear bar can show both ends: a low ceiling saturates
   while browsing, a high one makes normal use invisible. Only **physical
