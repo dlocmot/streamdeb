@@ -464,8 +464,11 @@ def dibujar_panel_metrica(deck, tamaño, titulo, valor, color,
     return imagen
 
 
-def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn):
-    """Panel con header + N barras verticales (una por core), color por %."""
+def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn, etiqueta_base=1):
+    """Panel con header + N barras verticales (una por core), color por %.
+
+    `etiqueta_base` es el número de la primera barra: con 8 cores repartidos
+    en dos tiles, el segundo pasa 5 para que etiquete 5-8 y no repita 1-4."""
     imagen = _nuevo_lienzo(tamaño)
     dibujo = ImageDraw.Draw(imagen)
     frame_color = color_fn(max(valores) if valores else 0)
@@ -499,7 +502,7 @@ def dibujar_panel_cores(deck, tamaño, titulo, valores, color_fn):
         if fill_h > 0:
             dibujo.rectangle((x, zone_bot - fill_h, x+bar_w, zone_bot), fill=c)
         lbl_y = (zone_bot + 5) if lcars else (tamaño[1]-5)
-        dibujo.text((x + bar_w//2, lbl_y), str(i+1), font=f_lbl, fill="#888888", anchor="mm")
+        dibujo.text((x + bar_w//2, lbl_y), str(i + etiqueta_base), font=f_lbl, fill="#888888", anchor="mm")
     return imagen
 
 

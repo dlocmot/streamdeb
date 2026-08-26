@@ -499,8 +499,8 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 11:
                 pagina_actual = 11
                 forzar_redraw = True
-        # Tecla 9 SIS (Cores consolidados): abre página CORES detalle (id 13)
-        elif tecla == 9:
+        # Teclas 8-9 SIS (los dos grupos de cores): abren CORES detalle (id 13)
+        elif tecla in (8, 9):
             if pagina_actual != 13:
                 pagina_actual = 13
                 forzar_redraw = True
@@ -514,13 +514,13 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 15:
                 pagina_actual = 15
                 forzar_redraw = True
-        # Tecla 10 SIS (Temp cores): abre página TEMPS detalle (id 16)
-        elif tecla == 10:
+        # Teclas 10-11 SIS (los dos grupos de temperatura): abren TEMPS (id 16)
+        elif tecla in (10, 11):
             if pagina_actual != 16:
                 pagina_actual = 16
                 forzar_redraw = True
-        # Tecla 11 SIS (PV widget): abre página GROWATT (id 17)
-        elif tecla == 11:
+        # Tecla 12 SIS (PV widget): abre página GROWATT (id 17)
+        elif tecla == 12:
             if pagina_actual != 17:
                 pagina_actual = 17
                 forzar_redraw = True

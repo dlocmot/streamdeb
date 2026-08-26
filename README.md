@@ -104,29 +104,31 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 | 10 | DOCKER  | SIS key 26                     |
 | 11 | WEATHER | SIS key 19                     |
 | 12 | CTX     | nav key 4                      |
-| 13 | CORES   | SIS key 9                      |
+| 13 | CORES   | SIS keys 8–9                   |
 | 14 | PINGS   | SIS key 25                     |
 | 15 | NET     | SIS key 24                     |
-| 16 | TEMPS   | SIS key 10                     |
-| 17 | GROWATT | SIS key 11                     |
+| 16 | TEMPS   | SIS keys 10–11                 |
+| 17 | GROWATT | SIS key 12                     |
 
 #### SIS page (default)
 
 ```
-Row 1:  Uptime  Cores   Temp    PV      .      .      .      .
-Row 2:  RAM     SWAP    ROOT    Weather .   IZQ L  CEN x2  DER L
-Row 3:  Net     Pings   Docker  GridW   .    IZQ    REST    DER
+Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8  PV     .      .      .
+Row 2:  RAM     SWAP    ROOT    Weather  .   IZQ L  CEN x2  DER L
+Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
 
-- **Cores** (key 9): title `Cores N%` (total CPU) + 4 vertical bars per
-  core. Tap → CORES subpage (id 13) with per-core detail (C1–C4), top 5
-  CPU processes and top 5 memory (GB).
-- **Temp** (key 10): title `Temp N°` (core average) + 4 temperature
-  bars. Bar maps [65..105 °C]→0..100 % (calibrated for a fanless Celeron
-  J4105). Colors: ≤82 green, 82–92 yellow, 92–100 amber, >100 red.
-  Tap → TEMPS subpage (id 16) with Package + cores + other sensors
-  (acpitz, wifi) + fans.
-- **PV** (key 11): 4 auto-scaled bars from the Growatt plugin — PV,
+- **Cores** (keys 8–9): four vertical bars per tile, so an 8-core CPU reads
+  as two tiles — the first titled `Cores N%` with total CPU. Bars are labelled
+  with their real core number. Tap → CORES subpage (id 13) with one core per
+  key, top 5 CPU processes and top 5 memory (GB).
+- **Temp** (keys 10–11): same split, one tile per group of four, titled with
+  that group's average. **Scale and colours come from the sensor itself**, not
+  from hardcoded constants: the bar covers the last 35 °C before `critical`,
+  and the colours are green up to 10° below `high`, yellow to `high`, amber to
+  `critical`, red above. Tap → TEMPS subpage (id 16) with one core per key plus
+  Package, critical, and the other sensors (nvme, pch, wifi) and fans.
+- **PV** (key 12): 4 auto-scaled bars from the Growatt plugin — PV,
   battery discharge, grid import, house load, with battery charge stacked
   on top of the load bar. Tap → GROWATT page (id 17).
 - **Weather** (key 19): WMO icon + current temp + min/max. Tap →
@@ -143,6 +145,7 @@ Row 3:  Net     Pings   Docker  GridW   .    IZQ    REST    DER
   every 5 min. Green when it is watching and the grid is up, red during an
   outage, amber when it stops responding — because a dead watchdog and a quiet
   one look identical from your phone.
+- **Uptime** (key 28): time since boot, beside GridW.
 - **Pedal tiles** (keys 21/22/23 and 29/30/31): read-only indicators for
   the Stream Deck Pedal — see [Foot pedal](#foot-pedal) below.
 

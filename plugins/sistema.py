@@ -111,29 +111,43 @@ def _temp_pkg(s=None):
     return pkg.current, pkg.critical
 
 
-TEMP_BAR_MIN = 65   # base de la barra (todo abajo de aquí queda vacío)
-TEMP_BAR_MAX = 105  # tope de la barra (Tjmax del J4105)
+# Fallbacks si el sensor no expone high/critical (algunos SoC no lo hacen).
+TEMP_CRIT_FALLBACK = 100.0
+TEMP_BAR_RANGO     = 35    # grados que abarca la barra por debajo del crítico
+
+
+def _limites_termicos(s=None):
+    """(high, crit) que reporta el propio coretemp, con fallback.
+
+    Antes estaban cableados al Celeron J4105 (Tjmax 105). Derivarlos del sensor
+    hace que la escala siga siendo correcta al cambiar de equipo: en el i7-9700T
+    son high=92 y crit=100, que reproducen exactamente los mismos umbrales de
+    color que la calibración vieja, pero con la barra llegando a llenarse."""
+    if s is None:
+        s = _leer_sensores()
+    cores = s.get("coretemp") or []
+    crit = next((e.critical for e in cores if e.critical), None) or TEMP_CRIT_FALLBACK
+    high = next((e.high for e in cores if e.high), None) or (crit - 8)
+    return high, crit
 
 
 def _temp_color_pct(temp, crit=None):
-    """% de llenado de la barra: rango [TEMP_BAR_MIN .. TEMP_BAR_MAX] → 0-100.
-    Argumento `crit` se ignora (mantenido por compat); usamos límites fijos
-    para que la franja útil (65-105°C) ocupe toda la barra."""
-    rng = TEMP_BAR_MAX - TEMP_BAR_MIN
-    return min(100, max(0, (temp - TEMP_BAR_MIN) / rng * 100))
+    """% de llenado: los últimos TEMP_BAR_RANGO grados antes del crítico."""
+    if crit is None:
+        _high, crit = _limites_termicos()
+    base = crit - TEMP_BAR_RANGO
+    return min(100, max(0, (temp - base) / TEMP_BAR_RANGO * 100))
 
 
-def temp_color(t):
-    """Color por temperatura absoluta °C, calibrado para Intel Celeron J4105
-    (SoC fanless, Tjmax 105°C). Validado con stress test 60s 4 cores:
-      - idle real medido: 76-79°C
-      - stress sostenido: ramp a 86→93°C (sin throttle en 60s)
-      - cooldown: lento, queda 80-85°C
-    Por eso la franja verde llega hasta 82°C (idle + margen).
-    ≤82 verde · 82-92 amarillo · 92-100 ámbar · >100 rojo (throttling)."""
-    if t <= 82:  return "#33ff33"
-    if t <= 92:  return "#ddee33"
-    if t <= 100: return "#ffaa00"
+def temp_color(t, high=None, crit=None):
+    """Color por temperatura absoluta, con los umbrales del propio sensor:
+    verde hasta 10° antes del `high`, amarillo hasta `high`, ámbar hasta
+    `critical` y rojo por encima (throttling)."""
+    if high is None or crit is None:
+        high, crit = _limites_termicos()
+    if t <= high - 10: return "#33ff33"
+    if t <= high:      return "#ddee33"
+    if t <= crit:      return "#ffaa00"
     return "#ff3333"
 
 
@@ -144,30 +158,33 @@ def render_pagina_temps(deck, tam, nav_imgs):
     per_core, crit = _temps_cores(s)
     pkg, _ = _temp_pkg(s)
 
-    # Fila 1: Package + 4 cores. Barra escala vs critical, color absoluto °C.
-    if pkg is not None:
-        imgs[8] = dibujar_panel_metrica(deck, tam, "Package", f"{pkg:.0f}°",
-                                          temp_color(pkg),
-                                          pct=_temp_color_pct(pkg, crit), sub="CPU")
-    for i, t in enumerate(per_core[:4]):
-        imgs[9+i] = dibujar_panel_metrica(deck, tam, f"Core {i}", f"{t:.0f}°",
-                                            temp_color(t),
-                                            pct=_temp_color_pct(t, crit), sub="°C")
-    if crit:
-        imgs[15] = dibujar_panel_metrica(deck, tam, "Crit", f"{crit:.0f}°", "#ff6666",
-                                           sub="thr")
+    high, _crit = _limites_termicos(s)
 
-    # Fila 2: otros sensores (acpitz / wifi / nvme...) — reusa la lectura única
+    # Fila 1 (8-15): un core por tecla, hasta 8.
+    for i, t in enumerate(per_core[:8]):
+        imgs[8+i] = dibujar_panel_metrica(deck, tam, f"Core {i}", f"{t:.0f}°",
+                                            temp_color(t, high, crit),
+                                            pct=_temp_color_pct(t, crit), sub="°C")
+
+    # Fila 2: Package y crítico (que la fila 1 ya no puede alojar) + otros
+    # sensores (acpitz / wifi / nvme...), reusando la lectura única.
+    if pkg is not None:
+        imgs[16] = dibujar_panel_metrica(deck, tam, "Package", f"{pkg:.0f}°",
+                                           temp_color(pkg, high, crit),
+                                           pct=_temp_color_pct(pkg, crit), sub="CPU")
+    if crit:
+        imgs[17] = dibujar_panel_metrica(deck, tam, "Crit", f"{crit:.0f}°", "#ff6666",
+                                           sub="thr")
     extras = []
     for grupo, items in s.items():
         if grupo == "coretemp":
             continue
         for e in items:
             label = (e.label or grupo)[:9]
-            extras.append((label, e.current, e.critical or 100))
-    for i, (lbl, t, c) in enumerate(extras[:8]):
-        imgs[16+i] = dibujar_panel_metrica(deck, tam, lbl, f"{t:.0f}°",
-                                             temp_color(t),
+            extras.append((label, e.current, e.critical or crit))
+    for i, (lbl, t, c) in enumerate(extras[:6]):
+        imgs[18+i] = dibujar_panel_metrica(deck, tam, lbl, f"{t:.0f}°",
+                                             temp_color(t, high, c),
                                              pct=_temp_color_pct(t, c), sub="°C")
 
     # Fila 3: ventiladores si los hay
@@ -276,16 +293,17 @@ def render_pagina_pings(deck, tam, nav_imgs, net_info, ping_history,
 
 
 def render_pagina_cores(deck, tam, nav_imgs):
-    """Página CORES (id 13): C1-C4 detalle + CPU total + top 5 CPU + top 5 MEM."""
+    """Página CORES (id 13): un core por tecla + CPU total + top 5 CPU/MEM."""
     cores = psutil.cpu_percent(percpu=True)
     cpu_t = sum(cores) / max(1, len(cores))
     imgs = dict(nav_imgs)
 
-    # Fila 1: C1..C4 (8-11), CPU T (15)
-    for i, v in enumerate(cores[:4]):
+    # Fila 1 (8-15): un core por tecla, hasta 8. CPU T se va a la 23 porque con
+    # 8 cores la fila queda llena.
+    for i, v in enumerate(cores[:8]):
         imgs[8+i] = dibujar_panel_metrica(deck, tam, f"C{i+1}", f"{int(v)}%",
                                             obtener_color_rango(v), pct=v)
-    imgs[15] = dibujar_panel_metrica(deck, tam, "CPU T", f"{int(cpu_t)}%",
+    imgs[23] = dibujar_panel_metrica(deck, tam, "CPU T", f"{int(cpu_t)}%",
                                        obtener_color_rango(cpu_t), pct=cpu_t)
 
     # Fila 2: TOP CPU (16=label, 17-21=top5)
@@ -340,8 +358,8 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
 
     imgs = dict(nav_imgs)
     imgs.update({
-        # Fila 1: uptime (en min/h/d — sin segundos para no repintar cada frame)
-        8:  dibujar_panel_metrica(deck, tam, "Uptime", _fmt_uptime(up_t), obtener_color_rango(pct_u), pct=pct_u),
+        # Fila 3: uptime, junto a GridW (la fila 1 la ocupan los 8 cores)
+        28: dibujar_panel_metrica(deck, tam, "Uptime", _fmt_uptime(up_t), obtener_color_rango(pct_u), pct=pct_u),
         # Fila 2: RAM, SWAP, DISK
         16: dibujar_panel_metrica(deck, tam, "RAM",  f"{int(ram)}%", obtener_color_rango(ram), pct=ram),
         17: dibujar_panel_metrica(deck, tam, "SWAP", f"{int(swp)}%", obtener_color_rango(swp), pct=swp),
@@ -353,20 +371,30 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
             ("U", (up_kbps/max_visto_up)*100,   "#0066ff", f_r(up_kbps)),
         ]),
     })
-    # Cores 1..4 consolidados en una tecla con barras verticales (CPU total en título)
-    imgs[9] = dibujar_panel_cores(deck, tam, f"Cores {int(cpu_t)}%",
-                                    list(cores[:4]), obtener_color_rango)
-    # Temperatura por core (tecla 10). Barra escala [65..105]→0..100, color °C.
+    # Cores en grupos de 4 por tecla: 8 → 1-4, 9 → 5-8. Con 4 cores o menos el
+    # segundo tile no se dibuja y la tecla queda libre.
+    for i, base in enumerate(range(0, min(len(cores), 8), 4)):
+        grupo = list(cores[base:base+4])
+        titulo = (f"Cores {int(cpu_t)}%" if base == 0
+                  else f"C{base+1}-{base+len(grupo)}")
+        imgs[8+i] = dibujar_panel_cores(deck, tam, titulo, grupo,
+                                        obtener_color_rango, etiqueta_base=base+1)
+
+    # Temperatura por core, mismos grupos: 10 → 1-4, 11 → 5-8.
     temps_per_core, _crit = _temps_cores()
     if temps_per_core:
-        pcts = [_temp_color_pct(t) for t in temps_per_core[:4]]
+        high, crit = _limites_termicos()
+        base_bar = crit - TEMP_BAR_RANGO
         # color_fn recibe el pct: lo invertimos a °C para usar temp_color absoluto.
         def _col(p):
-            t = TEMP_BAR_MIN + (p/100) * (TEMP_BAR_MAX - TEMP_BAR_MIN)
-            return temp_color(t)
-        avg = sum(temps_per_core[:4]) / len(temps_per_core[:4])
-        imgs[10] = dibujar_panel_cores(deck, tam, f"Temp {int(round(avg))}°",
-                                          pcts, _col)
+            return temp_color(base_bar + (p/100) * TEMP_BAR_RANGO, high, crit)
+        for i, base in enumerate(range(0, min(len(temps_per_core), 8), 4)):
+            grupo = temps_per_core[base:base+4]
+            pcts = [_temp_color_pct(t, crit) for t in grupo]
+            avg = sum(grupo) / len(grupo)
+            imgs[10+i] = dibujar_panel_cores(
+                deck, tam, f"T{base+1}-{base+len(grupo)} {int(round(avg))}°",
+                pcts, _col, etiqueta_base=base+1)
     # Pings gateway / 1.1.1.1 / 8.8.8.8 consolidados en tecla 28
     items = []
     for cl, lb in [("ping_gw","GW"), ("ping_dns1","CF"), ("ping_dns2","G")]:
