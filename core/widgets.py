@@ -56,6 +56,10 @@ def es_lcars():
 _panel_cache = {}
 _PANEL_CACHE_MAX = 256
 
+# Cadena patrón para dimensionar las cifras de dibujar_panel_pings: cinco
+# dígitos, el peor caso que producen sus llamadores ("999Kb", "142Mb", "123.4").
+_REF_TEXTO = "88888"
+
 
 def _panel_visual_key():
     """Estado visual global que afecta cómo se dibuja cualquier panel.
@@ -537,24 +541,22 @@ def dibujar_panel_pings(deck, tamaño, titulo, items):
     zone_bot = (_lcars_body_bottom(tamaño) - 14) if lcars else (tamaño[1] - 22)
     bar_zone_h = zone_bot - zone_top
     bar_w = (tamaño[0] - 2*pad_x - gap*(n-1)) // n
-    def _fuente_comun(textos, ancho, tams):
-        """Mayor tamaño en el que TODOS los textos caben en `ancho`.
+    def _fuente_estable(ancho, tams):
+        """Mayor tamaño en el que cabe una cadena de referencia fija.
 
-        Se elige uno para el tile entero: si cada barra escogiera el suyo, un
-        "0.3" saldría enorme junto a un "41.7" y el conjunto queda desigual."""
-        textos = [str(t) for t in textos if str(t)]
-        if not textos:
-            return None
+        Se mide contra `_REF_TEXTO`, no contra el contenido real: si el tamaño
+        dependiera del texto de cada frame, al pasar el caudal de "153Kb" a
+        "1Mb" la cifra se acortaría y la letra daría un salto. Los llamadores
+        garantizan que sus cadenas no exceden esa referencia."""
         for tam_f in tams:
             cand = cargar_fuente(tam_f)
-            if max(dibujo.textlength(t, font=cand) for t in textos) <= ancho:
+            if dibujo.textlength(_REF_TEXTO, font=cand) <= ancho:
                 return cand
         return cargar_fuente(tams[-1])
 
-    f_lbl = _fuente_comun([it[0] for it in items], bar_w + gap - 1,
-                          (17, 16, 15, 14, 13, 12, 11, 10, 9, 8)) or cargar_fuente(9)
-    f_val = _fuente_comun([it[3] for it in items], bar_w - 2,
-                          (15, 14, 13, 12, 11, 10, 9, 8))
+    f_lbl = _fuente_estable(bar_w + gap - 1,
+                            (17, 16, 15, 14, 13, 12, 11, 10, 9, 8))
+    f_val = _fuente_estable(bar_w - 2, (15, 14, 13, 12, 11, 10, 9, 8))
 
     for i, (lbl, pct, color, valor) in enumerate(items):
         x = pad_x + i*(bar_w + gap)

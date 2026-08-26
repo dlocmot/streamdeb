@@ -67,6 +67,18 @@ def _net_contadores():
                               for c in _NET_CAMPOS})
 
 
+def _fmt_caudal(kbps):
+    """Caudal en 5 caracteres como mucho: la tipografía de las barras se
+    dimensiona contra esa anchura y no debe desbordarla nunca."""
+    if kbps >= 999_500:        # ≥ 1 Gb/s (el umbral evita "1000Mb", 6 car.)
+        return f"{kbps/1_000_000:.1f}Gb"
+    if kbps >= 9_950:          # 10–999 Mb/s (evita que 9,99 redondee a "10.0Mb")
+        return f"{round(kbps/1000)}Mb"
+    if kbps >= 1_000:          # 1–9,9 Mb/s
+        return f"{kbps/1000:.1f}Mb"
+    return f"{int(kbps)}Kb"
+
+
 def _net_pct(kbps):
     """Altura de barra 0-100 en escala logarítmica."""
     v = max(NET_LOG_MIN, min(NET_LOG_MAX, kbps))
@@ -299,7 +311,7 @@ def render_pagina_net(deck, tam, nav_imgs):
     cur = _net_contadores()
     pico_dn = _net_pico("down")
     pico_up = _net_pico("up")
-    f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
+    f_r = _fmt_caudal
     f_b = lambda v: (f"{v/(1024**3):.1f}G" if v >= 1024**3
                      else f"{v/(1024**2):.0f}M")
 
@@ -424,7 +436,7 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     # cortos. Los contadores que pasa dashboard_pro (last_net/cur_net) se
     # mantienen en la firma por compatibilidad pero ya no se usan aquí.
     dn_kbps, up_kbps = _net_muestrear()
-    f_r = lambda v: f"{int(v/1000)}Mb" if v >= 1000 else f"{int(v)}Kb"
+    f_r = _fmt_caudal
 
     imgs = dict(nav_imgs)
     imgs.update({
