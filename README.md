@@ -134,8 +134,9 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   on top of the load bar. Tap → GROWATT page (id 17).
 - **RAM** (key 16) and **ZRAM** (key 17): RAM shows the **available** GB —
   the figure `earlyoom` watches to decide when to kill the biggest consumer —
-  coloured green above 20 %, amber down to 10 % and red below, where earlyoom
-  starts firing. ZRAM shows what compressed swap actually **costs in RAM**
+  with the used percentage underneath, matching the bar. Colour follows the
+  headroom: green above 20 % available, amber down to 10 % and red below,
+  where earlyoom starts firing. ZRAM shows what compressed swap actually **costs in RAM**
   plus its compression ratio, because on a zram-only machine the "swap used"
   percentage is a fraction of a nominal cap that is never reserved. Falls back
   to a plain SWAP tile on machines without zram.

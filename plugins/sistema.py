@@ -119,9 +119,10 @@ def _tile_ram(deck, tam):
     if   libre_pct < RAM_LIBRE_CRITIC: color = "#ff3333"
     elif libre_pct < RAM_LIBRE_AVISO:  color = "#ffaa00"
     else:                              color = "#33ff33"
-    # La barra sigue midiendo lo ocupado: llena = mal, como el resto de tiles.
+    # Cifra grande = lo que queda; debajo y en la barra, lo ocupado (llena =
+    # mal, como el resto de tiles). El color lo decide el margen disponible.
     return dibujar_panel_metrica(deck, tam, "RAM", _fmt_bytes(vm.available),
-                                 color, pct=vm.percent, sub="libre")
+                                 color, pct=vm.percent, sub=f"{int(vm.percent)}%")
 
 
 def _tile_zram(deck, tam):
