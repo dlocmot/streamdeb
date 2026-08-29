@@ -114,7 +114,7 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 
 ```
 Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8  PV     .      .      .
-Row 2:  RAM     SWAP    ROOT    Weather  .   IZQ L  CEN x2  DER L
+Row 2:  RAM     ZRAM    ROOT    Weather  .   IZQ L  CEN x2  DER L
 Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
 
@@ -132,6 +132,13 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 - **PV** (key 12): 4 auto-scaled bars from the Growatt plugin — PV,
   battery discharge, grid import, house load, with battery charge stacked
   on top of the load bar. Tap → GROWATT page (id 17).
+- **RAM** (key 16) and **ZRAM** (key 17): RAM shows the **available** GB —
+  the figure `earlyoom` watches to decide when to kill the biggest consumer —
+  coloured green above 20 %, amber down to 10 % and red below, where earlyoom
+  starts firing. ZRAM shows what compressed swap actually **costs in RAM**
+  plus its compression ratio, because on a zram-only machine the "swap used"
+  percentage is a fraction of a nominal cap that is never reserved. Falls back
+  to a plain SWAP tile on machines without zram.
 - **Weather** (key 19): WMO icon + current temp + min/max. Tap →
   WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip.
 - **Net** (key 24): 2 bars on a **logarithmic scale** (1 kb/s → 100 Mb/s),

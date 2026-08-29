@@ -67,6 +67,78 @@ def _net_contadores():
                               for c in _NET_CAMPOS})
 
 
+# --- Memoria: RAM disponible y zram -----------------------------------------
+# dinamo ya no tiene swap en disco, sólo zram (16 GB nominales, zstd). Eso
+# cambia lo que significan estos dos tiles:
+#  · el "swap usado" no es paginación a disco sino páginas comprimidas que
+#    siguen viviendo en la RAM, y su tope de 16 GB es nominal — zram sólo
+#    consume lo que realmente almacena.
+#  · lo que de verdad predice un atasco es la memoria DISPONIBLE: earlyoom
+#    manda SIGTERM al mayor consumidor cuando baja del 10% (y SIGKILL al 5%),
+#    que es el guardián instalado tras el congelamiento por thrashing de
+#    2026-07-06. Ver Documents/GitHub/debian/dinamo/notes/.
+RAM_LIBRE_AVISO  = 20.0   # % disponible: por debajo, ámbar
+RAM_LIBRE_CRITIC = 10.0   # % disponible: por debajo, rojo (umbral de earlyoom)
+
+
+def _fmt_bytes(n):
+    """Bytes → '7.0G' / '240M', en 4 caracteres."""
+    g = n / (1024**3)
+    return f"{g:.1f}G" if g >= 1 else f"{n/(1024**2):.0f}M"
+
+
+def _zram_info():
+    """(bytes_de_RAM_ocupados, ratio_compresión) sumando todos los zram.
+
+    `mm_stat` da orig_data_size, compr_data_size y mem_used_total: lo que se
+    guardó, lo que ocupa comprimido y lo que cuesta de RAM con sus metadatos.
+    Devuelve None si la máquina no usa zram (entonces el tile cae a swap)."""
+    orig = usado = 0
+    try:
+        discos = [d for d in os.listdir("/sys/block") if d.startswith("zram")]
+    except OSError:
+        return None
+    for d in discos:
+        try:
+            with open(f"/sys/block/{d}/mm_stat") as fh:
+                campos = fh.read().split()
+            orig  += int(campos[0])
+            usado += int(campos[2])
+        except (OSError, IndexError, ValueError):
+            continue
+    if not discos:
+        return None
+    ratio = (orig / usado) if usado else 0.0
+    return usado, ratio
+
+
+def _tile_ram(deck, tam):
+    """RAM: los GB que quedan disponibles, que es lo que mira earlyoom."""
+    vm = psutil.virtual_memory()
+    libre_pct = vm.available / vm.total * 100 if vm.total else 0
+    if   libre_pct < RAM_LIBRE_CRITIC: color = "#ff3333"
+    elif libre_pct < RAM_LIBRE_AVISO:  color = "#ffaa00"
+    else:                              color = "#33ff33"
+    # La barra sigue midiendo lo ocupado: llena = mal, como el resto de tiles.
+    return dibujar_panel_metrica(deck, tam, "RAM", _fmt_bytes(vm.available),
+                                 color, pct=vm.percent, sub="libre")
+
+
+def _tile_zram(deck, tam):
+    """ZRAM: lo que cuesta de RAM y cuánto comprime. Sin zram, swap normal."""
+    z = _zram_info()
+    sw = psutil.swap_memory()
+    if z is None:
+        return dibujar_panel_metrica(deck, tam, "SWAP", f"{int(sw.percent)}%",
+                                     obtener_color_rango(sw.percent), pct=sw.percent)
+    usado, ratio = z
+    # La barra es el llenado del tope nominal: earlyoom también vigila que
+    # quede swap libre, así que acercarse al tope importa.
+    return dibujar_panel_metrica(deck, tam, "ZRAM", _fmt_bytes(usado),
+                                 obtener_color_rango(sw.percent), pct=sw.percent,
+                                 sub=(f"{ratio:.1f}x" if ratio else "—"))
+
+
 def _fmt_caudal(kbps):
     """Caudal en 5 caracteres como mucho: la tipografía de las barras se
     dimensiona contra esa anchura y no debe desbordarla nunca."""
@@ -429,8 +501,6 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     up_t  = (psutil.boot_time() and time.time() - psutil.boot_time()) or 0
     pct_u = (up_t % CICLO_UPTIME) / CICLO_UPTIME * 100
     cores = psutil.cpu_percent(percpu=True)
-    ram   = psutil.virtual_memory().percent
-    swp   = psutil.swap_memory().percent
     disk  = psutil.disk_usage('/')
     # El rate lo lleva _net_muestrear, que ignora los intervalos demasiado
     # cortos. Los contadores que pasa dashboard_pro (last_net/cur_net) se
@@ -442,9 +512,9 @@ def render_pagina_sistema(deck, tam, nav_imgs, last_net, cur_net,
     imgs.update({
         # Fila 3: uptime, junto a GridW (la fila 1 la ocupan los 8 cores)
         28: dibujar_panel_metrica(deck, tam, "Uptime", _fmt_uptime(up_t), obtener_color_rango(pct_u), pct=pct_u),
-        # Fila 2: RAM, SWAP, DISK
-        16: dibujar_panel_metrica(deck, tam, "RAM",  f"{int(ram)}%", obtener_color_rango(ram), pct=ram),
-        17: dibujar_panel_metrica(deck, tam, "SWAP", f"{int(swp)}%", obtener_color_rango(swp), pct=swp),
+        # Fila 2: RAM, ZRAM, DISK
+        16: _tile_ram(deck, tam),
+        17: _tile_zram(deck, tam),
         18: dibujar_panel_metrica(deck, tam, "ROOT", f"{disk.free/(1024**3):.1f}G",
                                     obtener_color_rango(disk.percent), pct=disk.percent),
         # Fila 3: red consolidada en tecla 24 (DOWN+UP) → página NET
