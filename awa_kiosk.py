@@ -65,6 +65,10 @@ TZ_LIMA      = ZoneInfo("America/Lima")
 LIGHT_INI    = (5, 30)    # 05:30 → empieza light
 LIGHT_FIN    = (22, 0)    # 22:00 → empieza dark
 REDIM_DARK   = 3          # segundos hasta apagar el deck tras pulsar minutos o CERRAR (dark)
+# En tema oscuro el reposo es APAGADO: si se despierta y no se elige nada,
+# vuelve a apagarse tras estos segundos (en CONF manda tiempo_dim, para no
+# cortar a medias un ajuste).
+IDLE_APAGADO_S = int(os.environ.get("STREAMDEB_IDLE", "10"))
 
 
 # --- Estado global ---
@@ -416,6 +420,23 @@ def dibujar_texto_dark(deck, tam, texto, color, max_size=36, min_size=14):
 
 # --- Callback de teclas ---
 
+def _apagar(deck):
+    """Apaga el panel y lo deja listo en la página AWA.
+
+    Volver a AWA al apagar importa: si se apagara estando en CONF, el siguiente
+    toque (de un niño, por ejemplo) caería dentro de CONF sin haber mantenido
+    los 5 s que exige entrar."""
+    global modo_dim_activo, pagina_actual, forzar_redraw, _conf_hold_inicio
+    try: deck.set_brightness(0)
+    except Exception: pass
+    modo_dim_activo = True
+    if pagina_actual != 1:
+        pagina_actual = 1
+        forzar_redraw = True
+    with _conf_hold_lock:
+        _conf_hold_inicio = None
+
+
 def _accion_boton(deck, tecla):
     global pagina_actual, forzar_redraw, brillo_actual, modo_dim_activo
     global tema_override, auto_redim_at, tiempo_dim
@@ -460,10 +481,7 @@ def _accion_boton(deck, tecla):
             print(f"[CONF] tema_override={tema_override}", flush=True)
             forzar_redraw = True
         elif tecla == TECLA_CERRAR:
-            try:
-                deck.set_brightness(0)
-                modo_dim_activo = True
-            except: pass
+            _apagar(deck)
         return
 
     # En tema dark, sólo se aceptan: Estado (read-only), 1-5, Cerrar, Conf
@@ -523,7 +541,7 @@ def _conf_restante():
 
 def _vigilar_hold_conf(inicio):
     """Abre CONF si la misma pulsación sigue viva CONF_HOLD_S después."""
-    global pagina_actual, forzar_redraw, _conf_hold_inicio
+    global pagina_actual, forzar_redraw, _conf_hold_inicio, ultimo_toque
     while True:
         time.sleep(0.1)
         with _conf_hold_lock:
@@ -531,6 +549,9 @@ def _vigilar_hold_conf(inicio):
                 return
             if time.time() - inicio >= CONF_HOLD_S:
                 _conf_hold_inicio = None
+                # Abrir CONF cuenta como actividad: si no, el reloj de
+                # inactividad arrastraría los 5 s de la pulsación.
+                ultimo_toque = time.time()
                 pagina_actual = 2
                 forzar_redraw = True
                 print(f"[CONF] abierta tras mantener {CONF_HOLD_S:.0f} s", flush=True)
@@ -780,19 +801,24 @@ def iniciar_kiosko():
     img_negra = dibujar_negro(deck, tam)
     pagina_anterior = None
     tema_anterior   = None
+    encender_tras_pintar = False
+
+    # Reposo = apagado: en tema oscuro arranca a 0 y espera un toque.
+    if tema_actual() == "dark":
+        _apagar(deck)
 
     try:
         while True:
             ahora = time.time()
             tema  = tema_actual()
 
-            # Despertar por toque (brillo según tema)
+            # Despertar por toque. Se pinta primero y se enciende después: las
+            # teclas conservan la última imagen mientras están a 0, y encender
+            # antes mostraría un instante una pantalla vieja.
             if _despertar:
-                try:
-                    deck.set_brightness(brillo_actual)
-                    modo_dim_activo = False
-                except Exception:
-                    pass
+                modo_dim_activo = False
+                encender_tras_pintar = True
+                forzar_redraw = True
                 _despertar = False
 
             # Transición de tema (auto o manual): redibuja todo
@@ -802,9 +828,7 @@ def iniciar_kiosko():
                 forzar_redraw = True
                 # Al entrar a dark: atenúa de inmediato (queda a la espera de toque)
                 if tema == "dark" and tema_anterior is not None:
-                    try: deck.set_brightness(0)
-                    except: pass
-                    modo_dim_activo = True
+                    _apagar(deck)
                 # Al volver a light, si no estaba dim, ajusta brillo a brillo_actual
                 elif tema == "light" and tema_anterior is not None and not modo_dim_activo:
                     try: deck.set_brightness(brillo_actual)
@@ -813,18 +837,16 @@ def iniciar_kiosko():
 
             # Auto-redim REDIM_DARK s tras pulsar apertura o cerrar en dark
             if auto_redim_at is not None and ahora >= auto_redim_at:
-                try: deck.set_brightness(0)
-                except: pass
-                modo_dim_activo = True
-                auto_redim_at   = None
+                _apagar(deck)
+                auto_redim_at = None
 
             # Auto-dim por inactividad (aplica en light y dark)
-            if not modo_dim_activo and (ahora - ultimo_toque) > tiempo_dim:
-                print(f"[DIM] auto-dim tras {int(ahora - ultimo_toque)}s "
-                      f"(tiempo_dim={tiempo_dim})", flush=True)
-                try: deck.set_brightness(0)
-                except: pass
-                modo_dim_activo = True
+            limite = (IDLE_APAGADO_S if (tema == "dark" and pagina_actual == 1)
+                      else tiempo_dim)
+            if not modo_dim_activo and (ahora - ultimo_toque) > limite:
+                print(f"[DIM] apagado tras {int(ahora - ultimo_toque)}s sin uso "
+                      f"(límite {limite}s)", flush=True)
+                _apagar(deck)
 
             if modo_dim_activo:
                 # Ping al deck para detectar desconexión USB durante dim
@@ -866,6 +888,10 @@ def iniciar_kiosko():
 
                 for key, img in imgs.items():
                     deck.set_key_image(key, img)
+
+                if encender_tras_pintar:
+                    deck.set_brightness(brillo_actual)
+                    encender_tras_pintar = False
 
             except Exception as e:
                 print(f"[ERR] {e} — intentando reconectar...", flush=True)

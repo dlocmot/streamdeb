@@ -429,6 +429,13 @@ CONF page:
 
 **Behaviors:**
 
+- **Resting state is off.** In the dark theme the panel starts at zero
+  brightness and stays that way. The first touch only wakes it (it doesn't
+  trigger the key under your finger); pick a time and it goes dark again 3 s
+  later. Woken but left alone, it goes dark after 10 s (`STREAMDEB_IDLE`).
+  Whenever it goes dark it returns to the AWA page, so a later touch can never
+  land inside CONF without the 5-second hold.
+
 - **CONF needs a 5-second hold.** Entering the configuration page from the AWA
   page only happens after holding the key for 5 s — a tap, or several taps in a
   row, do nothing. It guards against accidental touches and against small
