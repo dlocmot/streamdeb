@@ -429,6 +429,12 @@ CONF page:
 
 **Behaviors:**
 
+- **CONF needs a 5-second hold.** Entering the configuration page from the AWA
+  page only happens after holding the key for 5 s — a tap, or several taps in a
+  row, do nothing. It guards against accidental touches and against small
+  children playing with the panel. While held, the key counts down (5…1).
+  Leaving CONF is still a single tap.
+
 - **Time-based theme**: light 05:30–22:00 America/Lima, dark otherwise,
   overridable from CONF or pinned dark with `STREAMDEB_FORCE_DARK=1`.
   (This is a kiosk-only feature; the main dashboard uses render profiles

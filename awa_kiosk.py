@@ -107,6 +107,12 @@ ACCIONES_LABELS = {16:"1 MIN", 17:"2 MIN", 18:"3 MIN", 19:"4 MIN", 20:"5 MIN",
                    24:"15 MIN", 25:"30 MIN", 26:"1 HORA", 27:"2 HORAS"}
 TECLA_PING   = 23
 TECLA_NAV    = 30   # AWA: ir a CONF · CONF: volver a AWA
+
+# Entrar en CONF exige mantener la tecla: evita toques accidentales y que los
+# niños entren jugando. Salir de CONF sigue siendo un toque normal.
+CONF_HOLD_S = 5.0
+_conf_hold_inicio = None          # time.time() del press en curso, o None
+_conf_hold_lock   = threading.Lock()
 TECLA_CERRAR = 31
 
 
@@ -416,13 +422,10 @@ def _accion_boton(deck, tecla):
 
     tema = tema_actual()
 
-    # Nav AWA ↔ CONF — slot depende del tema en página AWA; en CONF siempre TECLA_NAV
-    if pagina_actual == 2:
-        nav_slot = TECLA_NAV
-    else:
-        nav_slot = DARK_TECLA_CONF if tema == "dark" else TECLA_NAV
-    if tecla == nav_slot:
-        pagina_actual = 2 if pagina_actual == 1 else 1
+    # Volver de CONF a AWA: basta un toque. Entrar exige mantener
+    # CONF_HOLD_S segundos y lo resuelve boton_presionado, no esta función.
+    if pagina_actual == 2 and tecla == TECLA_NAV:
+        pagina_actual = 1
         forzar_redraw = True
         return
 
@@ -505,13 +508,51 @@ def _accion_boton(deck, tecla):
         return
 
 
+def _tecla_conf_en_awa():
+    """Tecla que abre CONF desde la página AWA: cambia de sitio con el tema."""
+    return DARK_TECLA_CONF if tema_actual() == "dark" else TECLA_NAV
+
+
+def _conf_restante():
+    """Segundos que faltan para abrir CONF, o None si nadie la mantiene."""
+    inicio = _conf_hold_inicio
+    if inicio is None:
+        return None
+    return max(1, int(CONF_HOLD_S - (time.time() - inicio)) + 1)
+
+
+def _vigilar_hold_conf(inicio):
+    """Abre CONF si la misma pulsación sigue viva CONF_HOLD_S después."""
+    global pagina_actual, forzar_redraw, _conf_hold_inicio
+    while True:
+        time.sleep(0.1)
+        with _conf_hold_lock:
+            if _conf_hold_inicio != inicio:     # se soltó antes de tiempo
+                return
+            if time.time() - inicio >= CONF_HOLD_S:
+                _conf_hold_inicio = None
+                pagina_actual = 2
+                forzar_redraw = True
+                print(f"[CONF] abierta tras mantener {CONF_HOLD_S:.0f} s", flush=True)
+                return
+
+
 def boton_presionado(deck, tecla, estado):
-    global ultimo_toque, _despertar
+    global ultimo_toque, _despertar, _conf_hold_inicio
     if not estado:
+        # Soltar sólo importa para abortar una pulsación larga sobre CONF.
+        with _conf_hold_lock:
+            _conf_hold_inicio = None
         return
     ultimo_toque = time.time()
     if modo_dim_activo:
         _despertar = True
+        return
+    if pagina_actual == 1 and tecla == _tecla_conf_en_awa():
+        inicio = time.time()
+        with _conf_hold_lock:
+            _conf_hold_inicio = inicio
+        threading.Thread(target=_vigilar_hold_conf, args=(inicio,), daemon=True).start()
         return
     threading.Thread(target=_accion_boton, args=(deck, tecla), daemon=True).start()
 
@@ -621,7 +662,10 @@ def render_pagina(deck, tam):
     # Fila 3 — aperturas largas + nav a CONF + cerrar
     for t in (24, 25, 26, 27):
         imgs[t] = accion(t, ACCIONES_LABELS[t])
-    imgs[TECLA_NAV]    = dibujar_btn_seleccion(deck, tam, "Menu", "Conf", COL_CONF)
+    restante = _conf_restante()
+    imgs[TECLA_NAV]    = (dibujar_btn_seleccion(deck, tam, "Mantén", str(restante), COL_AWA, activo=True)
+                          if restante else
+                          dibujar_btn_seleccion(deck, tam, "Menu", "Conf", COL_CONF))
     # CERRAR: rojo sólido cuando hay aper. en curso (call to action);
     # outline tenue cuando el estado actual ya es Cerrada (acción pasiva)
     imgs[TECLA_CERRAR] = dibujar_accion_pro(deck, tam, "CERRAR", COL_ROJO,
@@ -676,7 +720,9 @@ def render_pagina_dark(deck, tam):
         18: num(18, "3"),
         19: num(19, "4"),
         20: num(20, "5"),
-        DARK_TECLA_CONF:   dibujar_texto_dark(deck, tam, "Conf",   COL_CONF, max_size=22),
+        DARK_TECLA_CONF:   (dibujar_texto_dark(deck, tam, str(_conf_restante()), COL_AWA, max_size=44)
+                            if _conf_restante() else
+                            dibujar_texto_dark(deck, tam, "Conf", COL_CONF, max_size=22)),
         # CERRAR: rojo cuando hay aper. en curso, gris tenue cuando ya está cerrada
         TECLA_CERRAR:      dibujar_texto_dark(deck, tam, "CERRAR",
                                               COL_ROJO if (online and abierta) else "#444444",
