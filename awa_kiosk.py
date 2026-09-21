@@ -64,7 +64,7 @@ BRILLO_DARK  = 50          # brillo fijo en tema dark
 TZ_LIMA      = ZoneInfo("America/Lima")
 LIGHT_INI    = (5, 30)    # 05:30 → empieza light
 LIGHT_FIN    = (22, 0)    # 22:00 → empieza dark
-REDIM_DARK   = 2          # segundos hasta auto-dim tras pulsar apertura en dark
+REDIM_DARK   = 3          # segundos hasta apagar el deck tras pulsar minutos o CERRAR (dark)
 
 
 # --- Estado global ---
@@ -811,7 +811,7 @@ def iniciar_kiosko():
                     except: pass
                 tema_anterior = tema
 
-            # Auto-redim 2s tras pulsar apertura o cerrar en dark
+            # Auto-redim REDIM_DARK s tras pulsar apertura o cerrar en dark
             if auto_redim_at is not None and ahora >= auto_redim_at:
                 try: deck.set_brightness(0)
                 except: pass

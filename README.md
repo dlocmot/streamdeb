@@ -440,8 +440,8 @@ CONF page:
   (This is a kiosk-only feature; the main dashboard uses render profiles
   instead.)
 - **Brightness** and **Dim** work in both themes.
-- **Auto-redim 2 s in dark**: after pressing an opening button or CLOSE
-  while in the dark theme, the deck dims to 0 after 2 s (silent kiosk
+- **Auto-redim 3 s in dark**: after pressing an opening button or CLOSE
+  while in the dark theme, the deck dims to 0 after 3 s (silent kiosk
   at night). Any touch wakes it up.
 - **Deck ping while dimmed**: every 1 s a `set_brightness(0)` ping
   detects USB drop-outs that would otherwise go unnoticed.
