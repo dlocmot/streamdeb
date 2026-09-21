@@ -44,8 +44,6 @@ def render_pagina_config(deck, tam, nav_imgs, *,
             (tema_lcars[:7].upper() if perfil_visual == 3 else str(perfil_visual)),
             "#33ff99" if perfil_visual != 3 else "#ff77cc",
         ),
-        # Col 7 fila 1 — perfil Kiosko
-        15: dibujar_panel_metrica(deck, tam, "Perfil", "Kiosko", "#00ddff"),
         # X de apagado
         31: dibujar_boton_x(deck, tam),
     })

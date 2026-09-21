@@ -243,7 +243,7 @@ Reached with a long-press on key 0. Everything is editable without
 restarting the service, and persisted to `~/.config/streamdeb/state.json`:
 
 ```
-Row 1:  Bright+  Fallback+  Dim 30m  Monitor+  Wallpaper  .  Perfil V  Kiosk
+Row 1:  Bright+  Fallback+  Dim 30m  Monitor+  Wallpaper  .  Perfil V    .
 Row 2:  Bright%  Fallback   Dim 1h   Monitor      .       .     .        .
 Row 3:  Bright−  Fallback−  Dim Fijo Monitor−     .       .     .        X
 ```
@@ -258,8 +258,6 @@ Row 3:  Bright−  Fallback−  Dim Fijo Monitor−     .       .     .        X
   output (auto-detected, override with `STREAMDEB_MONITOR_OUTPUT`).
 - **Wallpaper** (key 12): short press rotates, long-press ≥2 s turns it off.
 - **Perfil V** (key 14): rotates render profile and theme.
-- **Kiosk profile** (key 15): switches this deck to `awa_kiosk.py`
-  (see [Profile switch](#profile-switch-main--kiosk-on-dinamo)).
 - **Power-off X** (key 31): manual dim.
 
 #### Foot pedal
@@ -335,26 +333,30 @@ systemctl --user restart streamdeb       # after editing the code
 journalctl --user -u streamdeb -f
 ```
 
-### Profile switch (main ↔ kiosk on dinamo)
+### Two decks, one role each (dinamo)
 
-On dinamo the deck can run `awa_kiosk.py` as a temporary profile
-without needing the Pi:
+dinamo drives **two Stream Deck XL**, each with a fixed role — there is no
+switching between them:
 
-- Button in CONF on each app:
-  - main: key **15** "Perfil Kiosko".
-  - kiosk: key **11** "Perfil Main" (only rendered when
-    `streamdeb.service` is installed, so it never shows on the Pi).
-- The atomic swap is inlined in each app: it starts the incoming app as a
-  **transient unit** (`systemd-run --user --no-block`) so it survives the
-  `stop` of the current one, whose cgroup-kill takes everything with it.
-  It waits 1.5 s before starting so the USB deck is released.
-- Both apps trap SIGTERM to close the deck cleanly inside `finally`.
+| Deck serial      | Service                  | App                | Role                        |
+|------------------|--------------------------|--------------------|-----------------------------|
+| `CL44I1A04650`   | `streamdeb.service`      | `dashboard_pro.py` | General dashboard           |
+| `CL40I1A03955`   | `streamdeb-kiosk.service`| `awa_kiosk.py`     | AWAhorro panel, always dark |
 
-Set up the parallel kiosk unit on dinamo:
+Each unit pins its deck with `STREAMDEB_DECK_SERIAL`; an app skips any deck
+whose serial doesn't match, and a deck already held by the other service
+can't be opened anyway, so the two never fight over hardware. Both units are
+`enable`d and restart on failure.
+
 ```bash
 cp systemd/streamdeb-kiosk.service ~/.config/systemd/user/
 systemctl --user daemon-reload
+systemctl --user enable --now streamdeb-kiosk
 ```
+
+The profile-switch buttons that used to swap one deck between the two apps
+were removed: with a deck per role, pressing one would stop a service and
+leave its deck dark.
 
 ### Declarative config + GUI
 
@@ -420,13 +422,10 @@ AWA page (default):
   Row 3:  15MIN 30MIN 1HOUR 2HOURS .     .    CONF    CLOSE
 
 CONF page:
-  Row 1:  Bright+ Dim+  .    [Main]  .    .    .    Daytime theme
+  Row 1:  Bright+ Dim+  .    .       .    .    .    Daytime theme
   Row 2:  Bright% Dim%  .    .       .    .    .    .
   Row 3:  Bright− Dim−  .    .       .    .    AWA  X (power off)
 ```
-
-`[Main]` (key 11) only renders on dinamo (returns to the main
-profile). It does not appear on the Pi.
 
 **Behaviors:**
 

@@ -606,39 +606,6 @@ def _accion_boton(deck, tecla):
             _invalidar_render_cache()
             print(f"[CONFIG] perfil_visual={perfil_visual} tema_lcars={tema_lcars}", flush=True)
             forzar_redraw = True; _persist_save()
-        # Perfil Kiosko: pasa este deck (B) a AWA. Lanza awa_kiosk pineado
-        # al mismo serial como servicio transient, luego para streamdeb.
-        elif tecla == 15:
-            serial_b = DECK_SERIAL or ""
-            print(f"[CONFIG] deck {serial_b} → AWA kiosko", flush=True)
-            unit = f"streamdeb-kiosk-b-{int(time.time())}"
-            # Derivar rutas del propio módulo/intérprete en vez de hardcodearlas,
-            # para que el botón kiosko funcione si el repo se mueve o se despliega
-            # en otra máquina/usuario.
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            kiosk_py = os.path.join(base_dir, "awa_kiosk.py")
-            cmd_arranque = (
-                f"sleep 1.5 && "
-                f"STREAMDEB_DECK_SERIAL={serial_b} STREAMDEB_FORCE_DARK=1 "
-                f"{sys.executable} {kiosk_py}"
-            )
-            subprocess.Popen(
-                ["systemd-run", "--user", "--no-block",
-                 f"--unit={unit}",
-                 "--description=AWA kiosko en deck B",
-                 "--setenv=DISPLAY=:0",
-                 f"--setenv=STREAMDEB_API_HOST={API_HOST}",
-                 # Nota: usuario propio del kiosko (distinto de API_USER).
-                 "--setenv=STREAMDEB_API_USER=Dinamo",
-                 "bash", "-lc", cmd_arranque],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            subprocess.Popen(
-                ["systemctl", "--user", "stop", "streamdeb.service"],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
         # X de apagado en config
         elif tecla == 31:
             try:
