@@ -195,6 +195,7 @@ from plugins import pedal    as plugin_pedal
 from plugins import userconfig as plugin_userconfig
 from plugins import growatt  as plugin_growatt
 from plugins import gridwatch as plugin_gridwatch
+from plugins import kernel   as plugin_kernel
 APPS_PAGINA = plugin_apps.APPS_PAGINA
 WEB_PAGINA  = plugin_web.WEB_PAGINA
 KEYS_PAGINA = plugin_keys.KEYS_PAGINA
@@ -919,6 +920,7 @@ def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets.update(plugin_pedal.widget_para_sistema(deck, tam))
     widgets.update(plugin_growatt.widget_para_sistema(deck, tam))
     widgets.update(plugin_gridwatch.widget_para_sistema(deck, tam))
+    widgets.update(plugin_kernel.widget_para_sistema(deck, tam))
     return plugin_sistema.render_pagina_sistema(
         deck, tam, botones_navegacion(deck, tam),
         last_net, cur_net, net_info, _ping_pct_relativo,
@@ -1050,6 +1052,7 @@ def iniciar_dashboard():
     threading.Thread(target=plugin_pedal.tareas_fondo,   daemon=True).start()
     threading.Thread(target=plugin_growatt.tareas_fondo, daemon=True).start()
     threading.Thread(target=plugin_gridwatch.tareas_fondo, daemon=True).start()
+    threading.Thread(target=plugin_kernel.tareas_fondo,    daemon=True).start()
     threading.Thread(target=tareas_userconfig_watch,     daemon=True).start()
     threading.Thread(target=tareas_press_inject, args=(deck,), daemon=True).start()
     last_net = psutil.net_io_counters()

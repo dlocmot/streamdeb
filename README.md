@@ -114,7 +114,7 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 
 ```
 Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8  PV     .      .      .
-Row 2:  RAM     ZRAM    ROOT    Weather  .   IZQ L  CEN x2  DER L
+Row 2:  RAM     ZRAM    ROOT    Weather Kernel IZQ L CEN x2 DER L
 Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
 
@@ -140,6 +140,11 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   plus its compression ratio, because on a zram-only machine the "swap used"
   percentage is a fraction of a nominal cap that is never reserved. Falls back
   to a plain SWAP tile on machines without zram.
+- **Kernel** (key 20): running version and flavour (`7.2.8` / `xanmod`). Turns
+  amber with **`reiniciar`** when a newer kernel of the *same flavour* is
+  installed but not booted — the moment nothing else reminds you. Flavours are
+  compared separately so the stock Debian kernels kept around don't raise a
+  false alarm on a XanMod box.
 - **Weather** (key 19): WMO icon + current temp + min/max. Tap →
   WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip.
 - **Net** (key 24): 2 bars on a **logarithmic scale** (1 kb/s → 100 Mb/s),
