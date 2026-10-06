@@ -6,8 +6,14 @@ Widget en SIS tecla 12. Sin página propia: es un indicador de un vistazo.
 la GPU pasa en su estado de sueño profundo: `100 − RC6` es el tiempo que estuvo
 despierta. No es idéntico al uso de los motores de render que reporta
 `intel_gpu_top` — una GPU despierta puede estar haciendo poco, así que esta
-cifra tiende a quedar por encima — pero sube y baja con la carga real y, a
-diferencia del contador exacto, se lee de sysfs **sin permisos especiales**.
+cifra queda por encima — medido contra `intel_gpu_top` el 2026-10-06, con el
+escritorio trabajando: este tile marcaba 88,1 % mientras el motor de render
+estaba al 75,6 % y el de vídeo al 11 %, o sea 12,5 puntos de más. A cambio se
+lee de sysfs **sin permisos especiales** y sigue la carga con fidelidad (en
+reposo cae a 3-4 %). Por eso el tile se titula "GPU activa" y no "GPU".
+
+El cálculo en sí es exacto: coincide con el RC6 que reporta el propio
+`intel_gpu_top` con uno o dos puntos de desfase.
 
 El contador exacto vive en el PMU del i915, que exige `CAP_PERFMON` o bajar
 `kernel.perf_event_paranoid`; se descartó para no relajar la seguridad del
@@ -99,10 +105,14 @@ def tareas_fondo():
 def widget_para_sistema(deck, tam):
     with _lock:
         info = dict(gpu_info)
+    # El título dice "activa", no "GPU" a secas: lo que se mide es tiempo
+    # despierta, que con carga real queda ~12 puntos por encima del uso del
+    # motor de render (medido: tile 88,1% vs RCS 75,6%). La etiqueta no debe
+    # prometer una precisión que el contador no da.
     if info["ocupada"] is None:
-        return {TECLA_SIS: dibujar_panel_metrica(deck, tam, "GPU", "n/d", "#666666",
-                                                 sub=info["error"] or "…")}
+        return {TECLA_SIS: dibujar_panel_metrica(deck, tam, "GPU activa", "n/d",
+                                                 "#666666", sub=info["error"] or "…")}
     pct = info["ocupada"]
     sub = f"{info['mhz']}MHz" if info["mhz"] else None
-    return {TECLA_SIS: dibujar_panel_metrica(deck, tam, "GPU", f"{int(round(pct))}%",
+    return {TECLA_SIS: dibujar_panel_metrica(deck, tam, "GPU activa", f"{int(round(pct))}%",
                                              obtener_color_rango(pct), pct=pct, sub=sub)}
