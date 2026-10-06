@@ -904,7 +904,7 @@ def render_pagina_growatt(deck, tam, nav_imgs):
     return imgs
 
 
-TECLA_SIS = 12  # Entry tile en SIS (fila 1, tras los 8 cores) → abre página GROWATT
+TECLA_SIS = 13  # Entry tile en SIS (fila 1, tras GPU) → abre página GROWATT
 
 
 def _fmt_w(w):

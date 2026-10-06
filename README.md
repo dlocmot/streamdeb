@@ -108,12 +108,12 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 | 14 | PINGS   | SIS key 25                     |
 | 15 | NET     | SIS key 24                     |
 | 16 | TEMPS   | SIS keys 10–11                 |
-| 17 | GROWATT | SIS key 12                     |
+| 17 | GROWATT | SIS key 13                     |
 
 #### SIS page (default)
 
 ```
-Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8  PV     .      .      .
+Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8  GPU    PV     .      .
 Row 2:  RAM     ZRAM    ROOT    Weather Kernel IZQ L CEN x2 DER L
 Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
@@ -129,7 +129,14 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   and the colours are green up to 10° below `high`, yellow to `high`, amber to
   `critical`, red above. Tap → TEMPS subpage (id 16) with one core per key plus
   Package, critical, and the other sensors (nvme, pch, wifi) and fans.
-- **PV** (key 12): 4 auto-scaled bars from the Growatt plugin — PV,
+- **GPU** (key 12): how busy the integrated GPU is, with its current clock.
+  Derived from **RC6 residency** — the share of time the GPU is *not* in deep
+  sleep — read straight from sysfs with no special privileges. It is a proxy,
+  not the engine utilisation `intel_gpu_top` reports: an awake GPU may be doing
+  little, so it reads somewhat high. The exact counter lives in the i915 PMU
+  and needs `CAP_PERFMON` or a relaxed `kernel.perf_event_paranoid`, which
+  wasn't worth loosening for a tile.
+- **PV** (key 13): 4 auto-scaled bars from the Growatt plugin — PV,
   battery discharge, grid import, house load, with battery charge stacked
   on top of the load bar. Tap → GROWATT page (id 17).
 - **RAM** (key 16) and **ZRAM** (key 17): RAM shows the **available** GB —
