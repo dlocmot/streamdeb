@@ -32,6 +32,7 @@ import socket
 import datetime
 import threading
 import subprocess
+import urllib.error
 import urllib.request
 from collections import deque
 from urllib.parse import urlparse
@@ -65,6 +66,7 @@ TZ_LIMA      = ZoneInfo("America/Lima")
 LIGHT_INI    = (5, 30)    # 05:30 → empieza light
 LIGHT_FIN    = (22, 0)    # 22:00 → empieza dark
 REDIM_DARK   = 3          # segundos hasta apagar el deck tras pulsar minutos o CERRAR (dark)
+AVISO_BLOQ_S = 4.0        # segundos que el aviso de "la base rechazó la orden" queda en pantalla
 # En tema oscuro el reposo es APAGADO: si se despierta y no se elige nada,
 # vuelve a apagarse tras estos segundos (en CONF manda tiempo_dim, para no
 # cortar a medias un ajuste).
@@ -87,6 +89,11 @@ api_info = {
     "modo": 0, "modoNombre": "---",
     "contador": 0, "wifiSignal": 0, "tankOnline": False, "tankSignal": 0,
     "usuario": "---", "adminLocked": False,
+    # Jerarquía de control de la base: 0 libre · 1 dispositivo (este deck o
+    # un mando) · 2 admin. Con un admin al control la base rechaza las
+    # órdenes del quiosco con HTTP 403. `adminLocked` ya no sirve para
+    # decidirlo: también es true cuando el control lo tiene este deck.
+    "lockLevel": 0, "lockBy": "",
     "segundos": 0, "initial_seconds": 0,
     "seqActive": False, "seqProgName": "",
     "seqElapsedSec": 0, "seqTotalSec": 0,
@@ -170,6 +177,8 @@ def tareas_api_fondo():
                 "tankSignal":      data.get("tankSignal", 0),
                 "usuario":         data.get("usuario", "---"),
                 "adminLocked":     data.get("adminLocked", False),
+                "lockLevel":       data.get("lockLevel", 0),
+                "lockBy":          data.get("lockBy", ""),
                 "segundos":        data.get("segundos", 0),
                 "initial_seconds": data.get("initial_seconds", 0),
                 "seqActive":       data.get("seqActive", False),
@@ -198,7 +207,45 @@ def tareas_ping_fondo():
         time.sleep(5)
 
 
-def api_post_comando(payload):
+# Aviso en curso de orden rechazada por la base. `tecla` es la que se pulsó,
+# para destacarla; None si la orden no vino de una tecla concreta.
+aviso_bloqueo = {"hasta": 0.0, "lockBy": "", "tecla": None}
+
+
+def _aviso_activo():
+    return aviso_bloqueo["hasta"] > time.time()
+
+
+def _avisar_bloqueo(lock_by, tecla):
+    """Deja el rechazo a la vista: un 403 no es un fallo de red, es una
+    negativa deliberada de la base porque un admin tiene el control. Sin esto
+    el quiosco se quedaba mudo y parecía que la tecla no había respondido."""
+    global forzar_redraw
+    aviso_bloqueo.update(hasta=time.time() + AVISO_BLOQ_S,
+                         lockBy=lock_by, tecla=tecla)
+    print(f"[BLOQ] orden rechazada: {lock_by} (admin) tiene el control", flush=True)
+    forzar_redraw = True
+
+
+def _redim_tras_accion():
+    """Cuándo apagar el deck tras una tecla en dark. Si la base acaba de
+    rechazar la orden hace falta más margen: con los REDIM_DARK de siempre el
+    panel se iría a negro antes de que nadie alcance a leer el aviso."""
+    return time.time() + (AVISO_BLOQ_S + 1.0 if _aviso_activo() else REDIM_DARK)
+
+
+def api_post_comando(payload, tecla=None):
+    """Manda una orden a la base.
+
+    El `user` se pone aquí y no en cada llamada: así ninguna acción vuelve a
+    quedar registrada como "API cerró" por olvidarlo (el payload puede
+    sobreescribirlo si alguna vez hace falta otro nombre).
+
+    La base manda: si un admin tiene el control responde 403 `admin_control` y
+    la válvula no se mueve. Ese caso se avisa en el deck; el quiosco no filtra
+    por su cuenta porque su último `/estado` puede estar hasta 2 s desfasado.
+    """
+    payload = {"user": API_USER, **payload}
     try:
         body = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
@@ -208,6 +255,16 @@ def api_post_comando(payload):
         )
         with urllib.request.urlopen(req, timeout=3) as resp:
             print(f"[API] {payload} → {resp.status}", flush=True)
+    except urllib.error.HTTPError as e:
+        detalle = {}
+        try:
+            detalle = json.loads(e.read().decode('utf-8'))
+        except Exception:
+            pass
+        if e.code == 403 and detalle.get("error") == "admin_control":
+            _avisar_bloqueo(detalle.get("lockBy") or "admin", tecla)
+            return
+        print(f"[ERR API] {payload}: HTTP {e.code} {detalle or ''}", flush=True)
     except Exception as e:
         print(f"[ERR API] {payload}: {e}", flush=True)
 
@@ -487,12 +544,12 @@ def _accion_boton(deck, tecla):
     # En tema dark, sólo se aceptan: Estado (read-only), 1-5, Cerrar, Conf
     if tema == "dark":
         if 16 <= tecla <= 20:
-            api_post_comando({"action": "open", "minutes": tecla - 15, "user": API_USER})
-            auto_redim_at = time.time() + REDIM_DARK
+            api_post_comando({"action": "open", "minutes": tecla - 15}, tecla)
+            auto_redim_at = _redim_tras_accion()
             return
         if tecla == TECLA_CERRAR:
-            api_post_comando({"action": "close"})
-            auto_redim_at = time.time() + REDIM_DARK
+            api_post_comando({"action": "close"}, tecla)
+            auto_redim_at = _redim_tras_accion()
             return
         # cualquier otra tecla en dark se ignora (Estado es read-only, modos/programas no se muestran)
         return
@@ -500,29 +557,29 @@ def _accion_boton(deck, tecla):
     # Página AWA en tema light — modos (fila 0, cols 0-2)
     if tecla in MODOS_TECLA:
         modo, _ = MODOS_TECLA[tecla]
-        api_post_comando({"action": "mode", "mode": modo, "user": API_USER})
+        api_post_comando({"action": "mode", "mode": modo}, tecla)
         return
 
     # Programas lavaplatos (fila 0, cols 3-7)
     if tecla in PROGRAMAS_TECLA:
         prog, _ = PROGRAMAS_TECLA[tecla]
-        api_post_comando({"action": "sequence", "program": prog, "user": API_USER})
+        api_post_comando({"action": "sequence", "program": prog}, tecla)
         return
 
     # Aperturas cortas (16-20 = 1..5 min)
     if 16 <= tecla <= 20:
-        api_post_comando({"action": "open", "minutes": tecla - 15, "user": API_USER})
+        api_post_comando({"action": "open", "minutes": tecla - 15}, tecla)
         return
 
     # Aperturas largas (24-27)
     mapa_largo = {24: 15, 25: 30, 26: 60, 27: 120}
     if tecla in mapa_largo:
-        api_post_comando({"action": "open", "minutes": mapa_largo[tecla], "user": API_USER})
+        api_post_comando({"action": "open", "minutes": mapa_largo[tecla]}, tecla)
         return
 
     # Cerrar
     if tecla == TECLA_CERRAR:
-        api_post_comando({"action": "close"})
+        api_post_comando({"action": "close"}, tecla)
         return
 
 
@@ -638,8 +695,11 @@ def render_pagina(deck, tam):
         return dibujar_accion_pro(deck, tam, label, COL_AWA)
 
     cuenta_color = "#666666" if not online else "#33ff33" if abierta else COL_ROJO
-    admin_color  = COL_ROJO if api_info["adminLocked"] else "#33ff33"
-    admin_txt    = "BLOQ" if api_info["adminLocked"] else "OK"
+    # Admin: lo que importa es si el quiosco PUEDE actuar. BLOQ (rojo) sólo con
+    # un admin al control; nivel 1 es el propio deck o un mando, que este deck sí
+    # puede pisar, así que va en ámbar con el nombre de quien lo tiene.
+    nivel   = api_info.get("lockLevel", 0)
+    lock_by = api_info.get("lockBy", "") or "?"
     tank_color   = "#33ff33" if api_info["tankOnline"] else COL_ROJO
     tank_txt     = f"{api_info['tankSignal']}/4" if api_info["tankOnline"] else "OFF"
 
@@ -673,7 +733,14 @@ def render_pagina(deck, tam):
     imgs[12] = dibujar_panel_info(deck, tam,    "WiFi",    f"{api_info['wifiSignal']}/4", COL_AWA)
     imgs[13] = dibujar_panel_info(deck, tam,    "Tank",    tank_txt, tank_color)
     imgs[14] = dibujar_panel_2lineas(deck, tam, "Usuario", api_info["usuario"], COL_AWA)
-    imgs[15] = dibujar_panel_info(deck, tam,    "Admin",   admin_txt, admin_color)
+    if nivel >= 2:
+        imgs[15] = dibujar_panel_2lineas(deck, tam, "Admin", f"BLOQ {lock_by}",
+                                         COL_ROJO, valor_color=COL_ROJO)
+    elif nivel == 1:
+        imgs[15] = dibujar_panel_2lineas(deck, tam, "Admin", f"USO {lock_by}",
+                                         COL_MODO, valor_color=COL_MODO)
+    else:
+        imgs[15] = dibujar_panel_info(deck, tam, "Admin", "OK", "#33ff33")
 
     # Fila 2 — aperturas cortas + ping API
     for t in (16, 17, 18, 19, 20):
@@ -691,6 +758,13 @@ def render_pagina(deck, tam):
     # outline tenue cuando el estado actual ya es Cerrada (acción pasiva)
     imgs[TECLA_CERRAR] = dibujar_accion_pro(deck, tam, "CERRAR", COL_ROJO,
                                             peligro=(online and abierta))
+
+    # La tecla rechazada se pisa con el aviso durante AVISO_BLOQ_S
+    if _aviso_activo():
+        destino = aviso_bloqueo["tecla"]
+        imgs[destino if destino in imgs else 15] = dibujar_panel_2lineas(
+            deck, tam, "Rechazado", f"ADMIN {aviso_bloqueo['lockBy']}",
+            COL_ROJO, valor_color=COL_ROJO)
 
     return imgs
 
@@ -749,6 +823,16 @@ def render_pagina_dark(deck, tam):
                                               COL_ROJO if (online and abierta) else "#444444",
                                               max_size=20),
     }
+
+    # Rechazo de la base: la tecla pulsada dice ADMIN y el hueco del estado,
+    # quién tiene el control. En dark no hay marcos, el color rojo es el aviso.
+    if _aviso_activo():
+        imgs[DARK_TECLA_ESTADO] = dibujar_texto_dark(deck, tam, aviso_bloqueo["lockBy"],
+                                                     COL_ROJO, max_size=18)
+        destino = aviso_bloqueo["tecla"]
+        if destino is not None:
+            imgs[destino] = dibujar_texto_dark(deck, tam, "ADMIN", COL_ROJO, max_size=18)
+
     return imgs
 
 
