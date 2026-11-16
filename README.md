@@ -156,7 +156,12 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   compared separately so the stock Debian kernels kept around don't raise a
   false alarm on a XanMod box.
 - **Weather** (key 19): WMO icon + current temp + min/max. Tap →
-  WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip.
+  WEATHER page (id 11) with banner + 24 h meteogram + 12 h strip. Open-Meteo
+  fails on its own now and then, so a single failed request no longer blanks
+  the tile: the last reading keeps showing until it is 90 min old, the retry
+  after a failure starts at 60 s instead of waiting the full 15 min cycle,
+  and the page footer carries the reading's own timestamp — with the wall
+  clock there instead, hour-old data looked freshly fetched.
 - **Net** (key 24): 2 bars on a **logarithmic scale** (1 kb/s → 100 Mb/s),
   each labelled with its own throughput — **purple for download, blue for
   upload**, the same pairing on the detail page. Throughput spans five
@@ -235,11 +240,30 @@ hot-reloaded within ~3 s of saving:
 
 #### CTX page
 
-Polls `xprop` every 0.7 s for the focused window's `WM_CLASS` and shows
-the shortcuts registered for that app (currently `mate-terminal` and
-Firefox, under its several instance names). Shortcuts may be key combos
-or `@page:N` jumps — that is how a focused browser routes you to WEB.
-The same signal reconfigures the foot pedal bindings.
+Tracks the focused window's class and shows the shortcuts registered for
+that app (terminals — `mate-terminal`, `tilix`, … — plus Firefox and Brave
+under their several instance names). Shortcuts may be key combos or
+`@page:N` jumps — that is how a focused browser routes you to WEB. The same
+signal reconfigures the foot pedal bindings.
+
+How it tracks depends on the session, like the WIN page:
+
+- **X11**: polls `xprop -root _NET_ACTIVE_WINDOW` + `WM_CLASS` every 0.7 s.
+- **Wayland**: `xprop` returns `0x0` there, and KWin cannot hand a script's
+  return value back over D-Bus. So instead of asking, it asks to be told: a
+  KWin script stays **loaded** and writes the class to KWin's log on every
+  `windowActivated`, and a `journalctl -f` follows it. One process in total,
+  no subprocess per cycle, and it reacts as soon as the compositor does. If
+  KWin ever restarts it takes the script with it, so a watchdog re-loads it.
+
+> **Known gap on Wayland.** Detecting the app is only half of it: the
+> shortcuts are *sent* with pynput, which loads its X11 backend and so only
+> reaches XWayland windows. On a KDE Wayland desktop almost nothing is
+> XWayland any more, so CTX, KEYS and the pedal's key bindings display
+> correctly but do not reach the app. A warning naming the count of X11
+> windows is logged at startup. Fixing it needs an injection path that does
+> not go through X — `ydotool` over `/dev/uinput` — which means installing a
+> package and granting uinput access, so it is left as a decision.
 
 #### GROWATT page
 

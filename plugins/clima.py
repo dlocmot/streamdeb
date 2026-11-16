@@ -1,5 +1,15 @@
 """Plugin CLIMA Arequipa (página 11 + widget en SIS 20-23).
-Fuente: Open-Meteo (sin API key). Refresh cada 15 min."""
+
+Fuente: Open-Meteo (sin API key). Refresh cada 15 min.
+
+Un fallo suelto NO borra el clima de la pantalla: la petición falla de vez en
+cuando (se vieron timeouts de handshake TLS con la red perfectamente sana), y
+antes bastaba uno para dejar el tile en «—» y la página en «sin datos»
+durante los 15 minutos completos hasta el siguiente intento. Ahora se sigue
+enseñando la última lectura mientras no caduque, el reintento tras un fallo es
+mucho más corto, y la página dice de cuándo es el dato en vez de pintar la
+hora actual al lado — que hacía parecer fresco lo que no lo era.
+"""
 import datetime
 import json
 import os
@@ -14,6 +24,10 @@ from core.widgets import _nuevo_lienzo, dibujar_panel_metrica, dibujar_lanzador_
 
 
 CLIMA_LAT, CLIMA_LON = -16.4090, -71.5375  # Arequipa, Perú
+
+REFRESCO_S  = 15 * 60   # cadencia normal
+REINTENTO_S = 60        # primer reintento tras un fallo; se duplica hasta REFRESCO_S
+CADUCIDAD_S = 90 * 60   # pasado esto la lectura ya no se enseña
 TECLAS_SIS = (20, 21, 22, 23)  # 4 tiles del widget en SIS
 
 clima_info = {
@@ -34,6 +48,7 @@ def tareas_fondo():
         f"&forecast_days=2"
         f"&timezone=America/Lima"
     )
+    fallos = 0
     while True:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "streamdeb/1.0"})
@@ -71,10 +86,33 @@ def tareas_fondo():
                 "hourly":       hourly_list,
                 "ts": time.time(),
             })
+            fallos = 0
         except Exception as e:
-            clima_info["online"] = False
-            print(f"[CLIMA] error: {e}", flush=True)
-        time.sleep(15 * 60)
+            # Ojo: NO se toca "temp"/"hourly"/"ts". El dato viejo se sigue
+            # enseñando hasta que caduque; sólo entonces desaparece.
+            clima_info["online"] = False   # sólo informa del último intento
+            fallos += 1
+            espera = min(REFRESCO_S, REINTENTO_S * 2 ** (fallos - 1))
+            print(f"[CLIMA] error (fallo {fallos}, reintento en {espera}s): {e}",
+                  flush=True)
+            time.sleep(espera)
+            continue
+        time.sleep(REFRESCO_S)
+
+
+def dato_util(info):
+    """¿Hay una lectura que merezca enseñarse? Mira la edad, no el último
+    intento: lo que importa es si el dato sigue valiendo, no si la última
+    petición salió bien."""
+    return (info.get("temp") is not None
+            and (time.time() - info.get("ts", 0)) < CADUCIDAD_S)
+
+
+def edad_dato(info):
+    """Segundos desde la lectura, o None si nunca hubo una."""
+    if not info.get("ts"):
+        return None
+    return time.time() - info["ts"]
 
 
 # --- Helpers visuales ---
@@ -154,7 +192,7 @@ def widget_para_sistema(deck, tam):
     # Snapshot atómico: el thread de fondo hace clima_info.update() (atómico
     # bajo GIL); copiar de una vez evita leer campos de updates distintos.
     info = dict(clima_info)
-    if info["online"] and info["temp"] is not None:
+    if dato_util(info):
         ico_name, ico_color = icono_wmo(info["weather_code"])
         ico_path = _iconify_png(ico_name, ico_color, 256)
         tmin = int(round(info['temp_min'] or 0))
@@ -181,7 +219,7 @@ def render_pagina_clima(deck, tam, nav_imgs):
     # === BANDA 1: AHORA (768×96) ===
     banner = Image.new("RGB", (8 * W, H), (13, 27, 42))
     d = ImageDraw.Draw(banner)
-    if info.get("online") and info.get("temp") is not None:
+    if dato_util(info):
         ico = _icono_pil(info["weather_code"], 64)
         if ico is not None:
             banner.paste(ico, (12, 16), ico)
@@ -210,9 +248,15 @@ def render_pagina_clima(deck, tam, nav_imgs):
         vie = info.get("viento") or 0
         d.text((x_right, 64), f"💧 {int(hum)}%   💨 {int(vie)} km/h",
                font=f_det, fill=(120, 180, 220), anchor="rm")
-        ahora = datetime.datetime.now().strftime("%H:%M")
-        d.text((x_right, 84), f"AREQUIPA · {ahora}",
-               font=f_city, fill=(160, 160, 160), anchor="rm")
+        # La hora que se enseña es la de la LECTURA, no la del reloj: con el
+        # reloj al lado, un dato de hace una hora parecía recién traído.
+        edad = edad_dato(info) or 0
+        sello = datetime.datetime.fromtimestamp(info["ts"]).strftime("%H:%M")
+        if edad < REFRESCO_S * 1.5:
+            pie, col_pie = f"AREQUIPA · {sello}", (160, 160, 160)
+        else:
+            pie, col_pie = f"AREQUIPA · {sello} ({int(edad // 60)} min)", (200, 150, 60)
+        d.text((x_right, 84), pie, font=f_city, fill=col_pie, anchor="rm")
     else:
         f = cargar_fuente(24)
         d.text((4 * W, H // 2), "Clima · sin datos",

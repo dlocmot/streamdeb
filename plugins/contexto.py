@@ -1,9 +1,25 @@
 """Plugin CTX (página 12): atajos context-aware según la app enfocada.
-Polling de xprop cada CTX_POLL_S; mapea WM_CLASS → lista de atajos."""
+
+Mapea la clase de la ventana activa → lista de atajos. De dónde sale esa
+clase depende de la sesión (lo decide [plugins/sesion.py]):
+
+- **X11**: `xprop -root _NET_ACTIVE_WINDOW` + `xprop -id <w> WM_CLASS`, en
+  poll cada CTX_POLL_S.
+- **Wayland**: xprop devuelve `0x0` — sólo ve ventanas XWayland, y bajo KDE ya
+  casi ninguna lo es. KWin tampoco sabe devolver datos de un script por DBus,
+  así que en vez de preguntar se le pide que avise: un script que se queda
+  **cargado** y escribe la clase en el log de KWin en cada `windowActivated`,
+  más un `journalctl -f` que lo sigue. Sale más barato que el poll de X11 —
+  un proceso en total, cero subprocesos por ciclo — y reacciona antes, porque
+  es el propio compositor quien dispara.
+"""
+import os
 import subprocess
+import threading
 import time
 
 from core.helpers import _env_sesion
+from plugins import sesion
 from core.iconos import buscar_icono as _buscar_icono, iconify_png as _iconify_png
 from core.keyboard import enviar_combo, KB_DISPONIBLE, Key
 from core.widgets import dibujar_lanzador_web, dibujar_panel_metrica, dibujar_btn_icono_nav
@@ -140,6 +156,143 @@ CONTEXTO_APPS = {
     ],
 }
 
+# El emulador de terminal cambió con el escritorio (MATE → KDE), pero los
+# atajos son los mismos: todos son VTE. Alias en vez de copia para que no se
+# puedan desincronizar.
+CONTEXTO_APPS["tilix"] = CONTEXTO_APPS["mate-terminal"]
+
+
+# --- Fuente Wayland: KWin avisa, no se le pregunta ---
+
+_KWIN_JS        = os.path.expanduser("~/.cache/streamdeb/kwin-ctx.js")
+_KWIN_NOMBRE    = "streamdebCtx"
+_KWIN_IDENT     = "kwin_wayland_wrapper"   # SYSLOG_IDENTIFIER de KWin
+_KWIN_CHEQUEO_S = 30                       # cada cuánto confirmar que sigue cargado
+_MARCA          = "STREAMDEB-CTX"
+
+_JS_LISTENER = """\
+// Generado por streamdeb (plugins/contexto.py). Se queda CARGADO y escribe la
+// clase de la ventana activa cada vez que cambia; el plugin sigue el log.
+function avisar(w) {
+    if (!w) return;
+    print("%(marca)s\t" + (w.resourceName || "") + "\t" + (w.resourceClass || ""));
+}
+workspace.windowActivated.connect(avisar);
+avisar(workspace.activeWindow);
+""" % {"marca": _MARCA}
+
+_wl_cands    = ()                 # último (instance, class) visto por el seguidor
+_wl_lock     = threading.Lock()
+_wl_iniciado = False
+
+
+def _qdbus():
+    import shutil
+    for binario in ("qdbus6", "qdbus", "qdbus-qt6"):
+        ruta = shutil.which(binario)
+        if ruta:
+            return ruta
+    raise RuntimeError("sin qdbus")
+
+
+def _kwin(objeto, metodo, *args):
+    r = subprocess.run([_qdbus(), "org.kde.KWin", objeto, metodo, *args],
+                       capture_output=True, text=True, timeout=3,
+                       env=_env_sesion())
+    if r.returncode != 0:
+        detalle = (r.stderr or r.stdout).strip() or f"rc={r.returncode}"
+        raise RuntimeError(detalle.splitlines()[-1])
+    return r.stdout.strip()
+
+
+def _cargar_listener():
+    """Deja el script escuchando dentro de KWin."""
+    os.makedirs(os.path.dirname(_KWIN_JS), exist_ok=True)
+    with open(_KWIN_JS, "w", encoding="utf-8") as fh:
+        fh.write(_JS_LISTENER)
+    # Descargar antes: con el nombre ya registrado, loadScript devolvería el id
+    # viejo sin releer el fichero.
+    _kwin("/Scripting", "org.kde.kwin.Scripting.unloadScript", _KWIN_NOMBRE)
+    sid = _kwin("/Scripting", "org.kde.kwin.Scripting.loadScript",
+                _KWIN_JS, _KWIN_NOMBRE)
+    _kwin(f"/Scripting/Script{sid}", "org.kde.kwin.Script.run")
+    print(f"[CTX] listener de KWin cargado (id={sid})", flush=True)
+
+
+def _tarea_vigilar_listener():
+    """Si KWin se reinicia se lleva el script con él y CTX se quedaría mudo
+    para siempre. Confirmar que sigue vivo cuesta una llamada cada 30 s."""
+    while True:
+        try:
+            if _kwin("/Scripting", "org.kde.kwin.Scripting.isScriptLoaded",
+                     _KWIN_NOMBRE) != "true":
+                print("[CTX] el listener ya no está en KWin; recargando", flush=True)
+                _cargar_listener()
+        except Exception as e:
+            print(f"[CTX] no se pudo verificar el listener: {e}", flush=True)
+        time.sleep(_KWIN_CHEQUEO_S)
+
+
+def _tarea_seguir_journal():
+    """Sigue el log de KWin y traduce cada aviso a `_wl_cands`."""
+    global _wl_cands
+    cmd = ["journalctl", "--user", "-f", "-n", "0", "-o", "cat", "-t", _KWIN_IDENT]
+    while True:
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL,
+                                    text=True, bufsize=1)
+            for linea in proc.stdout:
+                if _MARCA not in linea:
+                    continue
+                # "js: STREAMDEB-CTX\t<instance>\t<class>" — el instance llega
+                # vacío en apps Wayland nativas, así que se descartan los huecos.
+                partes = linea.split(_MARCA, 1)[1].split("\t")
+                cands = tuple(x.strip().lower() for x in partes if x.strip())
+                if cands:
+                    with _wl_lock:
+                        _wl_cands = cands
+        except Exception as e:
+            print(f"[CTX] seguidor del log caído: {e}", flush=True)
+        time.sleep(2)
+
+
+def _avisar_inyeccion():
+    """Detectar la app es sólo la mitad: los atajos se mandan con pynput, que
+    bajo Wayland carga su backend de X11 y por tanto sólo alcanza a las
+    ventanas XWayland. Si no queda ninguna, CTX/KEYS/pedal enseñarán teclas
+    que no hacen nada — mejor decirlo en el log que dejarlo de misterio."""
+    try:
+        from core.keyboard import KB_DISPONIBLE
+        if not KB_DISPONIBLE:
+            return
+        r = subprocess.run(["xprop", "-root", "_NET_CLIENT_LIST"],
+                           capture_output=True, text=True, timeout=2,
+                           env=_env_sesion())
+        xwl = len([x for x in r.stdout.split("#")[-1].split(",") if x.strip()])
+        print(f"[CTX] aviso: los atajos se inyectan por XWayland y sólo hay "
+              f"{xwl} ventana(s) X11 — en apps Wayland nativas no llegarán "
+              f"(haría falta ydotool/uinput)", flush=True)
+    except Exception:
+        pass
+
+
+def _arrancar_wayland():
+    """El seguidor arranca ANTES que el listener: el script avisa de la ventana
+    activa nada más cargarse, y con `-n 0` esa primera línea se perdería."""
+    global _wl_iniciado
+    if _wl_iniciado:
+        return
+    _wl_iniciado = True
+    _avisar_inyeccion()
+    threading.Thread(target=_tarea_seguir_journal, daemon=True).start()
+    time.sleep(0.5)
+    try:
+        _cargar_listener()
+    except Exception as e:
+        print(f"[CTX] no se pudo cargar el listener de KWin: {e}", flush=True)
+    threading.Thread(target=_tarea_vigilar_listener, daemon=True).start()
+
 
 # --- Polling ---
 
@@ -196,13 +349,25 @@ def _resolver_pedal_app(candidatos):
     return candidatos[0] if candidatos else ""
 
 
+def _candidatos_actuales():
+    """La tupla (instance, class) de la ventana activa, por la vía que toque.
+
+    En Wayland no cuesta nada: el valor ya lo dejó puesto el seguidor del log,
+    aquí sólo se lee."""
+    if sesion.backend_activo() == "wayland":
+        _arrancar_wayland()   # perezoso: el toggle de CONF puede cambiarlo en marcha
+        with _wl_lock:
+            return _wl_cands
+    return _detectar_wm_class()
+
+
 def tareas_fondo():
-    """Poll xprop cada CTX_POLL_S y guarda wm_class_actual + candidatos.
+    """Vigila la ventana activa y guarda wm_class_actual + candidatos.
     Si cambia la app, fuerza redraw para limpiar iconos stale del set anterior."""
     global wm_class_actual, wm_class_candidatos
     while True:
         try:
-            cands = _detectar_wm_class()
+            cands = _candidatos_actuales()
             if cands and cands != wm_class_candidatos:
                 wm_class_candidatos = cands
                 wm_class_actual     = _resolver_app(cands)
@@ -225,6 +390,7 @@ def tareas_fondo():
 # Mapa wm_class → nombre legible para el nav title (max ~8 chars).
 NOMBRE_AMIGABLE = {
     "mate-terminal": "Terminal",
+    "tilix":         "Terminal",
     "navigator":     "Firefox",
     "firefox-esr":   "Firefox",
     "firefox":       "Firefox",

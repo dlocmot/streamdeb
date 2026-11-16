@@ -1,4 +1,4 @@
-"""Bindings pedal para Mate Terminal (cualquier emulador GNOME-derivado)."""
+"""Bindings pedal para Mate Terminal (cualquier emulador VTE: gnome, tilix…)."""
 from plugins.pedal_apps import register
 
 BINDINGS = {
@@ -8,6 +8,6 @@ BINDINGS = {
     "hold_der":   ("Close",   "<Ctrl><Shift>w"),
     "double_cen": ("Clear",   "<Ctrl>l"),
 }
-for name in ("mate-terminal", "gnome-terminal-server", "xterm"):
+for name in ("mate-terminal", "gnome-terminal-server", "xterm", "tilix"):
     register(name, bindings=BINDINGS,
              description="Mate/Gnome Terminal — tabs + clear")
