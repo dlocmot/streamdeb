@@ -359,8 +359,14 @@ action = { type = "combo", keys = "ctrl+shift+v" }
 
 
 # ─────────────────────── VENT (página 8) ───────────────────────
-# Tiling de ventanas vía wmctrl. fraction_{x,y} = [min, max] como
-# fracción de la pantalla (solo para dibujar el preview del botón).
+# Tiling de ventanas. Cada botón lleva su geometría DOS veces porque hay dos
+# backends (ver plugins/vent.py y el tile Ventanas de SIS):
+#
+#   · fraction_{x,y} = [min, max] como fracción de la pantalla. Dibuja el
+#     preview del botón Y es lo que usa el backend de Wayland, multiplicado
+#     por el área útil que reporta KWin — así que esas fracciones valen para
+#     cualquier resolución y cualquier altura de panel.
+#   · wmctrl_geom son píxeles absolutos y SOLO los usa el backend de X11.
 #
 # ⚠️ wmctrl_geom CALIBRADO (2026-08-17) para 3840x1200 con panel MATE de
 # 29 px. No tocar "a ojo": el mapeo de wmctrl es que la x,y que pides es

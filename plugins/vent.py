@@ -1,14 +1,35 @@
-"""Plugin VENT (página 8): tiling de ventanas vía wmctrl.
-Usa las mismas geometrías que ~/.xbindkeysrc — no envía Super+N (xbindkeys
-ignora eventos sintéticos de pynput, XGrabKey no atrapa XTest)."""
+"""Plugin VENT (página 8): tiling de ventanas, con dos backends.
+
+**X11** usa `wmctrl` con las geometrías absolutas del TOML, calibradas a mano
+(ver la sección `[pages.vent]`). Son las mismas que ~/.xbindkeysrc — no se
+envía Super+N porque xbindkeys ignora los eventos sintéticos de pynput y
+XGrabKey no atrapa XTest.
+
+**Wayland** usa el scripting de KWin por DBus. Es la única vía que coloca una
+ventana con geometría exacta en una sesión Wayland: wmctrl y xdotool sólo ven
+ventanas XWayland (y bajo KDE casi nada lo es ya), y los atajos de quick-tile
+de KWin se quedan en mitades y cuartos, que no cubren los tercios de esta
+página. La geometría sale de las fracciones del TOML multiplicadas por el área
+útil que reporta `clientArea`, así que no depende de la resolución ni de la
+altura del panel de Plasma — a diferencia de los píxeles de wmctrl, que están
+atados a los 29 px del panel de MATE.
+
+El backend se elige solo según el tipo de sesión; el tile WIN de SIS permite
+fijarlo a mano (auto → X11 → Wayland) para probar o si la detección falla.
+"""
+import glob
+import json
 import os
+import shutil
 import subprocess
+import tempfile
 from PIL import Image, ImageDraw, ImageFont
 
 from core.config import FONT_PATH
 from core.helpers import cargar_fuente
 from core.iconos import iconify_png as _iconify_png
-from core.widgets import _nuevo_lienzo, con_marco, dibujar_btn_icono_nav
+from core.widgets import (_nuevo_lienzo, con_marco, dibujar_btn_icono_nav,
+                          dibujar_panel_metrica)
 
 
 # tecla → (label, x_ini, x_fin, y_ini, y_fin, geometría wmctrl "x,y,w,h")
@@ -92,16 +113,175 @@ def render_pagina_vent(deck, tam, nav_imgs):
     return imgs
 
 
+# --- Backend de colocación ---------------------------------------------------
+
+BACKEND_MODOS = ("auto", "x11", "wayland")   # lo que rota el tile de SIS
+TECLA_SIS     = 14                            # fila 1, a la derecha de PV (13)
+
+# Estado propio y no state.json: _persist_save() de dashboard_pro reescribe ese
+# dict entero desde sus globals y se llevaría por delante cualquier clave ajena.
+_ESTADO_PATH = os.path.expanduser("~/.config/streamdeb/vent.json")
+
+_KWIN_JS     = os.path.expanduser("~/.cache/streamdeb/kwin-colocar.js")
+_KWIN_NOMBRE = "streamdebColocar"
+
+backend_modo  = "auto"   # elección del usuario; "auto" la resuelve la sesión
+_ultimo_error = None     # nombre corto del último fallo, para teñir el tile
+
+
+# Los bordes se calculan por separado (x1 y x2, no x1 y ancho) para que las
+# tres columnas encajen sin huecos de 1 px por redondeo.
+_JS_PLANTILLA = """\
+// Generado por streamdeb (plugins/vent.py) en cada pulsación.
+var w = workspace.activeWindow;
+if (w) {{
+    var a = workspace.clientArea(KWin.MaximizeArea, w.output, workspace.currentDesktop);
+    var x1 = Math.round(a.width  * {xi}), x2 = Math.round(a.width  * {xf});
+    var y1 = Math.round(a.height * {yi}), y2 = Math.round(a.height * {yf});
+    if (w.fullScreen) w.fullScreen = false;
+    w.setMaximize(false, false);
+    w.frameGeometry = {{x: a.x + x1, y: a.y + y1,
+                       width: x2 - x1, height: y2 - y1}};
+}}
+"""
+
+
+def _sesion_es_wayland():
+    tipo = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if tipo in ("wayland", "x11"):
+        return tipo == "wayland"
+    # El servicio --user hereda XDG_SESSION_TYPE en esta máquina, pero no es
+    # garantía: si faltara, el socket del compositor es la pista que queda.
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return True
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return bool(glob.glob(os.path.join(runtime, "wayland-*")))
+
+
+def backend_activo():
+    """"wayland" o "x11": el modo elegido, resolviendo "auto" por la sesión."""
+    if backend_modo in ("x11", "wayland"):
+        return backend_modo
+    return "wayland" if _sesion_es_wayland() else "x11"
+
+
+def _qdbus():
+    for binario in ("qdbus6", "qdbus", "qdbus-qt6"):
+        ruta = shutil.which(binario)
+        if ruta:
+            return ruta
+    return None
+
+
+def _colocar_kwin(x_ini, x_fin, y_ini, y_fin):
+    """Coloca la ventana activa vía scripting de KWin.
+
+    KWin no ejecuta JS suelto por DBus: hay que escribir el script a disco,
+    cargarlo, correrlo y descargarlo en cada pulsación (~100 ms, imperceptible
+    en una tecla). El descargar ANTES de cargar no es por limpieza: con el
+    nombre ya registrado, `loadScript` devuelve el id viejo sin releer el
+    fichero y la tecla repetiría la geometría de la pulsación anterior."""
+    binario = _qdbus()
+    if binario is None:
+        raise RuntimeError("sin qdbus")
+    os.makedirs(os.path.dirname(_KWIN_JS), exist_ok=True)
+    with open(_KWIN_JS, "w", encoding="utf-8") as fh:
+        fh.write(_JS_PLANTILLA.format(xi=x_ini, xf=x_fin, yi=y_ini, yf=y_fin))
+
+    def llamar(objeto, metodo, *args):
+        r = subprocess.run([binario, "org.kde.KWin", objeto, metodo, *args],
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode != 0:
+            detalle = (r.stderr or r.stdout).strip() or f"rc={r.returncode}"
+            raise RuntimeError(detalle.splitlines()[-1])
+        return r.stdout.strip()
+
+    llamar("/Scripting", "org.kde.kwin.Scripting.unloadScript", _KWIN_NOMBRE)
+    sid = llamar("/Scripting", "org.kde.kwin.Scripting.loadScript",
+                 _KWIN_JS, _KWIN_NOMBRE)
+    llamar(f"/Scripting/Script{sid}", "org.kde.kwin.Script.run")
+    llamar("/Scripting", "org.kde.kwin.Scripting.unloadScript", _KWIN_NOMBRE)
+
+
+def _colocar_wmctrl(geom):
+    subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-b",
+                     "remove,maximized_vert,maximized_horz"],
+                   check=False, timeout=2)
+    subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", geom],
+                   check=False, timeout=2)
+
+
+def _cargar_estado():
+    global backend_modo
+    try:
+        with open(_ESTADO_PATH, encoding="utf-8") as fh:
+            modo = json.load(fh).get("backend")
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        print(f"[VENT] estado ilegible ({e}); backend en auto", flush=True)
+        return
+    if modo in BACKEND_MODOS:
+        backend_modo = modo
+
+
+def _guardar_estado():
+    try:
+        os.makedirs(os.path.dirname(_ESTADO_PATH), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(_ESTADO_PATH),
+                                   prefix=".vent-", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"backend": backend_modo}, fh)
+        os.replace(tmp, _ESTADO_PATH)
+    except Exception as e:
+        print(f"[VENT] no se pudo guardar el backend: {e}", flush=True)
+
+
+_cargar_estado()
+
+
+def widget_para_sistema(deck, tam):
+    """Tile WIN de SIS: qué backend coloca las ventanas y cómo se eligió."""
+    activo = backend_activo()
+    valor  = "Wayl" if activo == "wayland" else "X11"
+    if _ultimo_error:
+        color, sub = "#ff3333", _ultimo_error
+    elif backend_modo == "auto":
+        color, sub = "#33ff33", "auto"
+    else:
+        color, sub = "#ffaa00", "fijo"
+    return {TECLA_SIS: dibujar_panel_metrica(deck, tam, "Ventanas", valor,
+                                             color, sub=sub)}
+
+
+def on_press_sistema(tecla):
+    """Tecla 14 de SIS: rota auto → X11 → Wayland. True si la tecla era suya."""
+    global backend_modo, _ultimo_error
+    if tecla != TECLA_SIS:
+        return False
+    backend_modo = BACKEND_MODOS[(BACKEND_MODOS.index(backend_modo) + 1)
+                                 % len(BACKEND_MODOS)]
+    _ultimo_error = None
+    _guardar_estado()
+    print(f"[VENT] backend={backend_modo} → coloca con {backend_activo()}",
+          flush=True)
+    return True
+
+
 def on_press(tecla):
+    global _ultimo_error
     if tecla not in VENT_PAGINA:
         return False
-    geom = VENT_PAGINA[tecla][5]
+    label, x_ini, x_fin, y_ini, y_fin, geom = VENT_PAGINA[tecla]
+    destino = backend_activo()
     try:
-        subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-b",
-                         "remove,maximized_vert,maximized_horz"],
-                       check=False, timeout=2)
-        subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", geom],
-                       check=False, timeout=2)
+        if destino == "wayland":
+            _colocar_kwin(x_ini, x_fin, y_ini, y_fin)
+        else:
+            _colocar_wmctrl(geom)
+        _ultimo_error = None
     except Exception as e:
-        print(f"[VENT] error wmctrl: {e}", flush=True)
+        # El nombre de la excepción cabe en el tile; el detalle va al log.
+        _ultimo_error = type(e).__name__
+        print(f"[VENT] {destino}: '{label}' falló: {e}", flush=True)
     return True

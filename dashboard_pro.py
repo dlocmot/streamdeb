@@ -526,6 +526,9 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 17:
                 pagina_actual = 17
                 forzar_redraw = True
+        # Tecla 14 SIS (tile Ventanas): el plugin rota auto → X11 → Wayland
+        elif plugin_vent.on_press_sistema(tecla):
+            forzar_redraw = True
         return
 
     # Dispatch press → plugin handlers (registry simple)
@@ -923,6 +926,7 @@ def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets.update(plugin_gridwatch.widget_para_sistema(deck, tam))
     widgets.update(plugin_kernel.widget_para_sistema(deck, tam))
     widgets.update(plugin_gpu.widget_para_sistema(deck, tam))
+    widgets.update(plugin_vent.widget_para_sistema(deck, tam))
     return plugin_sistema.render_pagina_sistema(
         deck, tam, botones_navegacion(deck, tam),
         last_net, cur_net, net_info, _ping_pct_relativo,

@@ -113,7 +113,7 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 #### SIS page (default)
 
 ```
-Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8 GPUact  PV     .      .
+Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8 GPUact  PV   Windows  .
 Row 2:  RAM     ZRAM    ROOT    Weather Kernel IZQ L CEN x2 DER L
 Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
@@ -177,6 +177,11 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   outage, amber when it stops responding — because a dead watchdog and a quiet
   one look identical from your phone.
 - **Uptime** (key 28): time since boot, beside GridW.
+- **Windows** (key 14): which backend the WIN page uses to place windows —
+  `X11` (wmctrl) or `Wayl` (KWin scripting). Green and `auto` means it was
+  picked from the session type; press to pin it to one backend (amber, `fijo`)
+  and press again to cycle back to auto. Turns red with the exception name if
+  the last placement failed.
 - **Pedal tiles** (keys 21/22/23 and 29/30/31): read-only indicators for
   the Stream Deck Pedal — see [Foot pedal](#foot-pedal) below.
 
@@ -224,8 +229,14 @@ hot-reloaded within ~3 s of saving:
   overrides). Entered from CTX when a browser has focus.
 - **KEYS** — keyboard shortcuts, either `combo` (`ctrl+shift+c`,
   `print_screen`, `super+l`, …) or `type` (types a string).
-- **WIN** — window tiling via `wmctrl`, with geometries precomputed for a
-  3840×1200 desktop.
+- **WIN** — window tiling, with two backends picked automatically from the
+  session type (see the **Windows** tile on SIS to inspect or pin the choice).
+  On **X11** it drives `wmctrl` with the absolute geometries in the TOML,
+  precomputed for a 3840×1200 desktop. On **Wayland** `wmctrl` only sees
+  XWayland windows, so placement goes through KWin's scripting interface over
+  D-Bus instead: the geometry is derived from each button's `fraction_x` /
+  `fraction_y` times the work area KWin reports, which makes it independent of
+  both the resolution and the panel height.
 
 #### CTX page
 
