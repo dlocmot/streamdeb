@@ -130,53 +130,29 @@ def _persist_load():
 _persist_load()
 
 
-# --- Brillo monitor externo (xrandr gamma) ---
-from core.config import MONITOR_OUTPUT, MONITOR_BRILLO_MIN, MONITOR_BRILLO_MAX, MONITOR_BRILLO_PASO
-
-def _detectar_monitor_output():
-    """Devuelve el primer output activo de xrandr, o '' si falla."""
-    if MONITOR_OUTPUT:
-        return MONITOR_OUTPUT
-    try:
-        r = subprocess.run(["xrandr", "--listactivemonitors"],
-                            capture_output=True, text=True, timeout=2,
-                            env=_env_sesion())
-        for line in r.stdout.splitlines():
-            parts = line.strip().split()
-            # "0: +*HDMI-1 3840/1050x1200/330+0+0  HDMI-1"
-            if len(parts) >= 2 and parts[0].rstrip(":").isdigit():
-                return parts[-1]
-    except Exception as e:
-        print(f"[MONITOR] no se pudo detectar output: {e}", flush=True)
-    return ""
-
-_monitor_output = _detectar_monitor_output()
-if _monitor_output:
-    print(f"[MONITOR] output detectado: {_monitor_output}", flush=True)
-else:
-    print("[MONITOR] sin output al arrancar, se reintentará en uso", flush=True)
+# --- Brillo monitor externo (plugins/monitor.py: xrandr o PowerDevil) ---
+from core.config import MONITOR_BRILLO_PASO
+from plugins import sesion  as plugin_sesion
+from plugins import monitor as plugin_monitor
 
 def _monitor_aplicar():
-    """Aplica monitor_brillo% como xrandr --brightness 0.X al output activo."""
-    global _monitor_output
-    if not _monitor_output:
-        _monitor_output = _detectar_monitor_output()
-        if _monitor_output:
-            print(f"[MONITOR] output detectado (lazy): {_monitor_output}", flush=True)
-        else:
-            print("[MONITOR] aún sin output activo (xrandr falla)", flush=True)
-            return
-    val = max(MONITOR_BRILLO_MIN, min(MONITOR_BRILLO_MAX, monitor_brillo)) / 100.0
-    try:
-        r = subprocess.run(["xrandr", "--output", _monitor_output, "--brightness", f"{val:.2f}"],
-                            timeout=2, env=_env_sesion(),
-                            capture_output=True, text=True)
-        if r.returncode != 0:
-            print(f"[MONITOR] xrandr rc={r.returncode}: {r.stderr.strip()}", flush=True)
-    except Exception as e:
-        print(f"[MONITOR] error aplicando brillo: {e}", flush=True)
+    """Aplica monitor_brillo% por el backend que toque."""
+    global monitor_brillo
+    efectivo = plugin_monitor.aplicar(monitor_brillo)
+    if efectivo is not None:
+        monitor_brillo = efectivo
 
-_monitor_aplicar()  # aplicar el persistido al arrancar
+# Bajo Wayland el brillo vive en el propio monitor (DDC/CI) y cualquiera puede
+# moverlo, así que al arrancar se ADOPTA el real en vez de pisarlo: aplicar el
+# persistido daría un salto de brillo cada vez que se reinicia el servicio.
+_monitor_real = plugin_monitor.leer_pct()
+if _monitor_real is not None:
+    if _monitor_real != monitor_brillo:
+        print(f"[MONITOR] adoptando el brillo real del monitor: "
+              f"{_monitor_real}% (el guardado era {monitor_brillo}%)", flush=True)
+    monitor_brillo = _monitor_real
+else:
+    _monitor_aplicar()
 
 
 # --- Plugins (refactor etapas 2-3) ---
@@ -526,9 +502,6 @@ def _accion_boton(deck, tecla):
             if pagina_actual != 17:
                 pagina_actual = 17
                 forzar_redraw = True
-        # Tecla 14 SIS (tile Ventanas): el plugin rota auto → X11 → Wayland
-        elif plugin_vent.on_press_sistema(tecla):
-            forzar_redraw = True
         return
 
     # Dispatch press → plugin handlers (registry simple)
@@ -566,16 +539,17 @@ def _accion_boton(deck, tecla):
             print(f"[CONFIG] tiempo_dim={tiempo_dim}s", flush=True)
             forzar_redraw = True; _persist_save()
         # Col 3 — Brillo monitor (xrandr gamma)
-        elif tecla == 11:
-            monitor_brillo = min(MONITOR_BRILLO_MAX, monitor_brillo + MONITOR_BRILLO_PASO)
-            _monitor_aplicar()
+        elif tecla in (11, 27):
+            paso = MONITOR_BRILLO_PASO if tecla == 11 else -MONITOR_BRILLO_PASO
+            nuevo = plugin_monitor.paso(paso, monitor_brillo)
+            if nuevo is not None:
+                monitor_brillo = nuevo
             print(f"[CONFIG] monitor_brillo={monitor_brillo}%", flush=True)
             forzar_redraw = True; _persist_save()
-        elif tecla == 27:
-            monitor_brillo = max(MONITOR_BRILLO_MIN, monitor_brillo - MONITOR_BRILLO_PASO)
-            _monitor_aplicar()
-            print(f"[CONFIG] monitor_brillo={monitor_brillo}%", flush=True)
-            forzar_redraw = True; _persist_save()
+        # Col 6 — Sesión (bajo Perfil V): rota auto → X11 → Wayland. Decide el
+        # backend de la página WIN y del brillo del monitor.
+        elif plugin_sesion.on_press_config(tecla):
+            forzar_redraw = True
         # Wallpaper: la rotación / apagado se maneja en boton_presionado
         # vía detección de press corto vs long-press (ver _wallpaper_evento).
         # Col 6 — Perfil visual (rota 1 → 2 → … → 1)
@@ -926,7 +900,6 @@ def render_pagina_sistema(deck, tam, last_net, cur_net):
     widgets.update(plugin_gridwatch.widget_para_sistema(deck, tam))
     widgets.update(plugin_kernel.widget_para_sistema(deck, tam))
     widgets.update(plugin_gpu.widget_para_sistema(deck, tam))
-    widgets.update(plugin_vent.widget_para_sistema(deck, tam))
     return plugin_sistema.render_pagina_sistema(
         deck, tam, botones_navegacion(deck, tam),
         last_net, cur_net, net_info, _ping_pct_relativo,
@@ -989,7 +962,7 @@ def render_pagina_config(deck, tam):
         wallpaper_idx=wp.get_idx(), wallpaper_total=wp.total(),
         monitor_brillo=monitor_brillo,
         tema_lcars=tema_lcars,
-    )
+    ) | plugin_sesion.widget_para_config(deck, tam)
 
 
 # --- Registry: page_id → render(deck, tam). SIS (1) usa wrapper aparte por args extra. ---

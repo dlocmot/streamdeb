@@ -113,7 +113,7 @@ is focused, and **GROWATT** (17) from the PV widget on SIS.
 #### SIS page (default)
 
 ```
-Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8 GPUact  PV   Windows  .
+Row 1: Cores1-4 Cores5-8 Temp1-4 Temp5-8 GPUact  PV     .      .
 Row 2:  RAM     ZRAM    ROOT    Weather Kernel IZQ L CEN x2 DER L
 Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
 ```
@@ -177,11 +177,6 @@ Row 3:  Net     Pings   Docker  GridW  Uptime IZQ    REST    DER
   outage, amber when it stops responding — because a dead watchdog and a quiet
   one look identical from your phone.
 - **Uptime** (key 28): time since boot, beside GridW.
-- **Windows** (key 14): which backend the WIN page uses to place windows —
-  `X11` (wmctrl) or `Wayl` (KWin scripting). Green and `auto` means it was
-  picked from the session type; press to pin it to one backend (amber, `fijo`)
-  and press again to cycle back to auto. Turns red with the exception name if
-  the last placement failed.
 - **Pedal tiles** (keys 21/22/23 and 29/30/31): read-only indicators for
   the Stream Deck Pedal — see [Foot pedal](#foot-pedal) below.
 
@@ -230,7 +225,7 @@ hot-reloaded within ~3 s of saving:
 - **KEYS** — keyboard shortcuts, either `combo` (`ctrl+shift+c`,
   `print_screen`, `super+l`, …) or `type` (types a string).
 - **WIN** — window tiling, with two backends picked automatically from the
-  session type (see the **Windows** tile on SIS to inspect or pin the choice).
+  session type (see the **Sesión** tile on CONF to inspect or pin the choice).
   On **X11** it drives `wmctrl` with the absolute geometries in the TOML,
   precomputed for a 3840×1200 desktop. On **Wayland** `wmctrl` only sees
   XWayland windows, so placement goes through KWin's scripting interface over
@@ -270,7 +265,7 @@ restarting the service, and persisted to `~/.config/streamdeb/state.json`:
 
 ```
 Row 1:  Bright+  Fallback+  Dim 30m  Monitor+  Wallpaper  .  Perfil V    .
-Row 2:  Bright%  Fallback   Dim 1h   Monitor      .       .     .        .
+Row 2:  Bright%  Fallback   Dim 1h   Monitor      .       .   Sesión     .
 Row 3:  Bright−  Fallback−  Dim Fijo Monitor−     .       .     .        X
 ```
 
@@ -280,10 +275,24 @@ Row 3:  Bright−  Fallback−  Dim Fijo Monitor−     .       .     .        X
 - **Auto-dim** (col 2): three fixed choices, one per key — **30m** (10),
   **1h** (18) and **Fijo** (26), the active one highlighted. *Fijo* disables
   the automatic dim entirely; the manual power-off X still works.
-- **Monitor brightness** (col 3): `xrandr --brightness` on the active
-  output (auto-detected, override with `STREAMDEB_MONITOR_OUTPUT`).
+- **Monitor brightness** (col 3): step 10 %, and like the WIN page it has
+  two backends chosen by the **Sesión** tile below. On **X11** it is
+  `xrandr --brightness` on the active output (auto-detected, override with
+  `STREAMDEB_MONITOR_OUTPUT`) — a gamma multiplier that darkens the image,
+  not the backlight. On **Wayland** it goes through PowerDevil
+  (`org.kde.ScreenBrightness`, Plasma 6.3+), which on an external monitor
+  drives the **real** brightness over DDC/CI. Because that backend means the
+  monitor itself owns the value and the Plasma OSD can move it too, the
+  service reads the real level instead of imposing the saved one: it adopts
+  it at startup, and each ± step starts from it.
 - **Wallpaper** (key 12): short press rotates, long-press ≥2 s turns it off.
 - **Perfil V** (key 14): rotates render profile and theme.
+- **Sesión** (key 22, under Perfil V): which backend the WIN page and the
+  monitor brightness talk to — `X11` or `Wayl`. Green and `auto` means it was
+  derived from the session type, which is the normal state; pressing it pins
+  one backend (amber, `fijo`) and pressing again returns to auto. Turns red
+  naming which consumer failed (`win` / `mon`); the exception itself goes to
+  the log. Saved to `~/.config/streamdeb/sesion.json`, not `state.json`.
 - **Power-off X** (key 31): manual dim.
 
 #### Foot pedal
@@ -552,7 +561,10 @@ streamdeb/
 │   └── persistence.py          #   atomic load/save of state.json
 ├── plugins/                    # one self-contained module per feature
 │   ├── sistema.py awa.py media.py apps.py conf.py web.py keys.py vent.py
-│   ├── banner.py docker.py clima.py contexto.py userconfig.py pedal.py
+│   ├── docker.py clima.py contexto.py userconfig.py pedal.py
+│   ├── gpu.py kernel.py gridwatch.py
+│   ├── sesion.py              #   X11 vs Wayland, shared by vent + monitor
+│   ├── monitor.py             #   external monitor brightness (both backends)
 │   ├── growatt/                #   solar inverter (cloud API)
 │   ├── pedal_apps/             #   per-app pedal bindings
 │   └── themes/                 #   13 visual themes + shared chrome helpers
