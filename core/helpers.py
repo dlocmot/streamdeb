@@ -15,10 +15,36 @@ def cargar_fuente(size, font_path=None):
     return ImageFont.truetype(font_path or FONT_PATH, size)
 
 
+_VARS_SESION = ("XAUTHORITY", "WAYLAND_DISPLAY", "DISPLAY", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP",
+                "XDG_SESSION_DESKTOP", "DESKTOP_SESSION", "KDE_FULL_SESSION", "KDE_SESSION_VERSION")
+
+
+def _env_gestor_systemd():
+    """Variables de la sesión gráfica tal como las tiene AHORA el gestor de systemd del usuario.
+
+    El servicio arranca antes que la sesión (2026-11-19: 30 s antes de que Plasma creara su xauth en
+    /run/user/UID/xauth_*), así que su propio entorno no las tiene y caía en ~/.Xauthority, una cookie
+    vieja de MATE que XWayland rechaza: Wine caía entonces a su driver Wayland y WinBox salía con la letra
+    fina. Plasma las importa al gestor con dbus-update-activation-environment, así que se leen en cada
+    lanzamiento."""
+    try:
+        out = subprocess.run(["systemctl", "--user", "show-environment"], capture_output=True,
+                             text=True, timeout=2).stdout
+    except Exception:
+        return {}
+    vals = {}
+    for linea in out.splitlines():
+        k, _, v = linea.partition("=")
+        if k in _VARS_SESION and v:
+            vals[k] = v
+    return vals
+
+
 def _env_sesion():
     """Entorno con DISPLAY/DBUS/XDG/XAUTHORITY para que subprocess hereden el contexto."""
     uid = os.getuid()
     env = os.environ.copy()
+    env.update(_env_gestor_systemd())
     env.setdefault("XDG_RUNTIME_DIR",          f"/run/user/{uid}")
     env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
     env.setdefault("DISPLAY", ":0")
