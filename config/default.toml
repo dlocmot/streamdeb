@@ -114,7 +114,7 @@ icon     = "/opt/BurpSuiteCommunity/.install4j/BurpSuiteCommunity.png"
 key      = 20
 category = "Net"
 label    = "Winbox"
-command  = "wine /home/jfqp/Downloads/winbox.exe"
+command  = "XENVIRONMENT=/home/jfqp/.local/share/winbox/xft-sin-suavizado WINEDEBUG=-all wine /home/jfqp/Downloads/winbox.exe"
 color    = "#ffcc33"
 # icon ausente → se usa label como fallback
 
